@@ -1,5 +1,5 @@
 /**
- * GUI-Smoke — faehrt die Pruefpunkte G1-G16 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
+ * GUI-Smoke — faehrt die Pruefpunkte G1-G19 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
  * (CORE-TEST-02 b). Ein Fake-LLM-Server und ein Fake-Manager (llm-endpoint-manager, Plugin-API v1)
  * leben im Treiber: kein echtes Modell, keine echte URL, kein Schluessel.
  *
@@ -156,6 +156,11 @@ async function warteAufAntwort(cdp: Cdp, fake: FakeLlm, f0: number, maxMs: numbe
 async function statusKlassen(cdp: Cdp): Promise<{ cls: string; pressed: string | null; label: string | null }> {
   return cdp.evaluate(`const s = document.querySelector(".ghostline-status"); return s ? { cls: s.className, pressed: s.getAttribute("aria-pressed"), label: s.getAttribute("aria-label") } : { cls: "", pressed: null, label: null };`);
 }
+/** "doc/editor" als ja/nein: `document.hasFocus()` und `EditorView.hasFocus` des aktiven Editors. */
+async function fokus(cdp: Cdp): Promise<string> {
+  const r = await cdp.evaluate<{ d: boolean; e: boolean | null }>(`const cm = app.workspace.activeEditor?.editor?.cm; return { d: document.hasFocus(), e: cm ? cm.hasFocus : null };`);
+  return `${r.d ? "ja" : "nein"}/${r.e === null ? "?" : r.e ? "ja" : "nein"}`;
+}
 async function zeile(cdp: Cdp, n: number): Promise<string> {
   return (await cdp.evaluate<{ l: string }>(`return { l: app.workspace.activeEditor.editor.getLine(${n}) };`)).l;
 }
@@ -171,6 +176,8 @@ interface FakeLlm {
   ankuenfte(): number[]; chat(): number; comp(): number; frueherSchluss(): number; unterwegs(): number; fertig(): number;
   letzte(): Aufzeichnung | null;
   setPause(ms: number): void;
+  /** Stuecke fuer die naechsten Anfragen, je Anfrage ein Eintrag; leer = STUECKE. */
+  setAntworten(liste: string[][]): void;
   stoppen(): Promise<void>; starten(): Promise<void>; schliessen(): Promise<void>;
 }
 
@@ -180,16 +187,18 @@ const STUECKE = ["in ", "den ", "Park"];
 async function startFakeLlm(): Promise<FakeLlm> {
   let chat = 0, comp = 0, frueh = 0, unterwegs = 0, pause = 0, fertig = 0;
   let letzte: Aufzeichnung | null = null;
+  let antworten: string[][] = [];
   const ankuenfte: number[] = [];
   let port = 0;
   let server: Server | null = null;
 
   const sende = (res: ServerResponse, kind: "chat" | "comp"): void => {
     let i = 0;
+    const stuecke = antworten.shift() ?? STUECKE;
     const next = (): void => {
       if (res.destroyed || res.writableEnded) return;
-      if (i < STUECKE.length) {
-        const text = STUECKE[i++] as string;
+      if (i < stuecke.length) {
+        const text = stuecke[i++] as string;
         const chunk = kind === "chat" ? { choices: [{ delta: { content: text }, finish_reason: null }] } : { choices: [{ text, finish_reason: null }] };
         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         setTimeout(next, 80);
@@ -253,7 +262,7 @@ async function startFakeLlm(): Promise<FakeLlm> {
   return {
     get url() { return `http://127.0.0.1:${port}`; },
     ankuenfte: () => [...ankuenfte], chat: () => chat, comp: () => comp, frueherSchluss: () => frueh, unterwegs: () => unterwegs, fertig: () => fertig,
-    letzte: () => letzte, setPause: (ms) => { pause = ms; },
+    letzte: () => letzte, setPause: (ms) => { pause = ms; }, setAntworten: (liste) => { antworten = liste.map((l) => [...l]); },
     starten, stoppen, schliessen: stoppen,
   };
 }
@@ -327,6 +336,29 @@ async function setzeNotizenZurueck(cdp: Cdp): Promise<void> {
     }
     return { ok: true };
   `);
+  // Ein verspaetetes Speichern einer eben geschlossenen Notiz kann den Reset ueberschreiben: pollen statt schlafen.
+  for (const n of NOTES) await stabilePlatte(cdp, n, original(n), 6000);
+}
+/** Pollt die Platte, bis der Fixture-Text dort 600 ms unveraendert liegt; weicht sie ab, wird neu geschrieben
+ *  (ein verspaetetes Speichern der vorigen Notiz). Rueckgabe: ob der Zustand erreicht wurde, und wie oft geschrieben wurde. */
+async function stabilePlatte(cdp: Cdp, pfad: string, text: string, maxMs: number): Promise<{ ok: boolean; schreibvorgaenge: number }> {
+  const t0 = Date.now();
+  let schreibvorgaenge = 0;
+  let gleichSeit: number | null = null;
+  while (Date.now() - t0 < maxMs) {
+    const r = await cdp.evaluate<{ gleich: boolean }>(`
+      const f = app.vault.getAbstractFileByPath(${q(pfad)});
+      if (!f) return { gleich: false };
+      const platte = await app.vault.adapter.read(${q(pfad)});
+      if (platte === ${q(text)}) return { gleich: true };
+      await app.vault.modify(f, ${q(text)});
+      return { gleich: false };
+    `);
+    if (r.gleich) { gleichSeit ??= Date.now(); if (Date.now() - gleichSeit >= 600) return { ok: true, schreibvorgaenge }; }
+    else { gleichSeit = null; schreibvorgaenge += 1; }
+    await sleep(100);
+  }
+  return { ok: false, schreibvorgaenge };
 }
 async function entferneHotkey(cdp: Cdp): Promise<void> {
   await cdp.evaluate(`
@@ -347,20 +379,16 @@ async function entferneHotkey(cdp: Cdp): Promise<void> {
  *  ⚠️ Der Schreibweg ist entkoppelt von der Messung: ein `vault.modify` kurz vor `openFile` kollidiert mit dem
  *  verzoegerten Speichern der vorigen Notiz, Obsidian mischt die Aenderung in den offenen Editor, und das Plugin
  *  sieht eine Bearbeitung (gemessen im zweiten Lauf: ein Ghost wie aus dem Nichts, Zeichen aus der Notiz
- *  verschwunden). Deshalb: schliessen, Speichern abwarten, nur bei Abweichung schreiben, nochmal warten, erst dann
- *  oeffnen — und danach pruefen, dass der Editor den Fixture-Text traegt. */
+ *  verschwunden; Task 13c: G10 "nichts gemessen", Editor 29 statt 28 Zeichen). Deshalb Polling statt fester
+ *  Schlafzeiten: schliessen, bis keine Notiz mehr offen ist; Platte, bis der Fixture-Text 600 ms stabil liegt;
+ *  nach dem Oeffnen, bis Editor-Puffer UND Platte den Fixture-Text tragen und die Metadaten da sind. Kommt das
+ *  nicht zustande, wirft die Funktion — die Gruppe fuehrt ihre Punkte dann als "nichts gemessen", nie als gruen. */
 async function oeffne(cdp: Cdp, pfad: (typeof NOTES)[number], zeileNr: number | null = null): Promise<void> {
   await cdp.evaluate(`app.workspace.detachLeavesOfType("markdown"); return { ok: true };`);
-  await sleep(900);
+  await pollUntil<{ ok: boolean }>(cdp, `return app.workspace.getLeavesOfType("markdown").length === 0 ? { ok: true } : null;`, 3000, 50);
   const text = original(pfad);
-  const geschrieben = await cdp.evaluate<{ w: boolean }>(`
-    const f = app.vault.getAbstractFileByPath(${q(pfad)});
-    const platte = await app.vault.read(f);
-    if (platte === ${q(text)}) return { w: false };
-    await app.vault.modify(f, ${q(text)});
-    return { w: true };
-  `);
-  if (geschrieben.w) await sleep(900);
+  const platte = await stabilePlatte(cdp, pfad, text, 6000);
+  if (!platte.ok) throw new Error(`oeffne(${pfad}): die Platte traegt nach 6000 ms nicht stabil den Fixture-Text (${platte.schreibvorgaenge}x neu geschrieben) — Messung waere wertlos.`);
   await cdp.evaluate(`
     const f = app.vault.getAbstractFileByPath(${q(pfad)});
     const leaf = app.workspace.getLeaf(true);
@@ -368,10 +396,16 @@ async function oeffne(cdp: Cdp, pfad: (typeof NOTES)[number], zeileNr: number | 
     app.workspace.setActiveLeaf(leaf, { focus: true });
     return { ok: true };
   `);
-  await pollUntil<{ ok: boolean }>(cdp, `const e = app.workspace.activeEditor; return e && e.editor && e.file && e.file.path === ${q(pfad)} ? { ok: true } : null;`, 5000, 100);
-  await sleep(700); // Metadaten (Frontmatter-Ausschluss) und etwaige Nachlaeufer des Ladens setzen sich
-  const traegt = await docText(cdp);
-  if (traegt !== text) throw new Error(`oeffne(${pfad}): der Editor traegt nicht den Fixture-Text (${traegt.length} statt ${text.length} Zeichen) — Messung waere wertlos.`);
+  const bereit = await pollUntil<{ ok: boolean }>(cdp, `
+    const e = app.workspace.activeEditor;
+    if (!e || !e.editor || !e.file || e.file.path !== ${q(pfad)}) return null;
+    const platte = await app.vault.adapter.read(${q(pfad)});
+    return e.editor.getValue() === ${q(text)} && platte === ${q(text)} && app.metadataCache.getFileCache(e.file) ? { ok: true } : null;
+  `, 5000, 100);
+  if (!bereit) {
+    const traegt = await docText(cdp).catch(() => "");
+    throw new Error(`oeffne(${pfad}): Editor-Puffer und Platte tragen binnen 5000 ms nicht beide den Fixture-Text (Editor ${traegt.length} statt ${text.length} Zeichen) — Messung waere wertlos.`);
+  }
   await cdp.evaluate(`
     const ed = app.workspace.activeEditor.editor;
     let n = ${zeileNr === null ? "-1" : String(zeileNr)};
@@ -515,12 +549,17 @@ async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
   console.log(`    [G3] ${ruheG3}`);
   f0 = fake.fertig();
   await typeText(cdp, " ");
+  const frueh3 = fake.frueherSchluss();
+  const fokus3vor = await fokus(cdp);
   const vor3 = await warteAufAntwort(cdp, fake, f0, 4000);
+  const fokus3mitte = await fokus(cdp);
   await ARROW_RIGHT(cdp);
   await sleep(200);
   const z3 = await zeile(cdp, 2);
   const gh3 = await ghost(cdp);
-  record("G3 Pfeil rechts nimmt ein Wort", vor3 !== null && z3.endsWith("in") && gh3 === " den Park", `Ghost vorher ${JSON.stringify(vor3)}, Zeile ${JSON.stringify(z3)}, Ghost danach ${JSON.stringify(gh3)} || Ausgangslage: ${ruheG3}`);
+  const fokus3nach = await fokus(cdp);
+  // Hypothese des Final-Reviews: Fokusverlust -> Reset raeumt den Ghost oder bricht die Anfrage ab. Hier nur Daten, kein Urteil.
+  record("G3 Pfeil rechts nimmt ein Wort", vor3 !== null && z3.endsWith("in") && gh3 === " den Park", `Ghost vorher ${JSON.stringify(vor3)}, Zeile ${JSON.stringify(z3)}, Ghost danach ${JSON.stringify(gh3)} || Fokus (document.hasFocus/Editor.hasFocus) nach Trigger ${fokus3vor}, vor Pfeil ${fokus3mitte}, nach Pfeil ${fokus3nach}; frueherSchluss ${frueh3} → ${fake.frueherSchluss()} || Ausgangslage: ${ruheG3}`);
   // G4 — Escape auf dem Rest-Ghost von G3 waere ein Folgefehler; frisch
   await oeffne(cdp, "Schreiben.md");
   const ruheG4 = await warteRuhe(cdp, fake);
@@ -779,6 +818,86 @@ async function g15(cdp: Cdp, fake: FakeLlm): Promise<void> {
   record("G15 Schluessel geschwaerzt", ok, `Schluessel ${key.length} Zeichen (${zeilen.length} Koerperzeilen), Text hinter dem Schluessel ${nachKey} Zeichen, contextChars 300 → Fenster beginnt im Schluessel; Anfrage ${aufz.path} (${aufz.body.length} Zeichen): ${r.durchgelassen} von ${zeilen.length} Koerperzeilen durchgelassen, "${REDACT_MARK}" ${r.marke ? "vorhanden" : "FEHLT"}`);
 }
 
+async function g17(cdp: Cdp, fake: FakeLlm): Promise<void> {
+  console.log("\nG17 · Kein Vorschlag im leeren Listenpunkt");
+  // G7 prueft Tab; der Ausloeser dort ist das Setzen des Cursors, das oeffne() schon abwartet — G7 sieht eine
+  // Anfrage im leeren Listenpunkt also nicht. Hier wird nach der Ruhe wirklich getippt.
+  await oeffne(cdp, "Liste.md", 1);
+  const ruhe = await warteRuhe(cdp, fake);
+  const n0 = fake.chat() + fake.comp();
+  const len0 = (await docText(cdp)).length;
+  await typeText(cdp, " ");
+  await sleep(800);
+  const getippt = (await docText(cdp)).length - len0;
+  const gh = await ghost(cdp);
+  const n1 = fake.chat() + fake.comp();
+  // Positivkontrolle: dieselbe Notiz, gefuellter Listenpunkt
+  await oeffne(cdp, "Liste.md", 0);
+  await warteRuhe(cdp, fake);
+  await typeText(cdp, " ");
+  const k = await warteAufGhost(cdp, 2500);
+  record("G17 Kein Vorschlag im leeren Listenpunkt", gh === null && n1 === n0 && getippt === 1 && k !== null, `leerer Punkt "- ": Ghost ${JSON.stringify(gh)}, Zaehler ${n0}→${n1}, Zeichen getippt ${getippt} || Kontrolle "- Erster Punkt ": Ghost ${JSON.stringify(k?.t ?? null)} || Ausgangslage: ${ruhe}`);
+}
+
+async function g18(cdp: Cdp, fake: FakeLlm): Promise<void> {
+  console.log("\nG18 · Tab-Kette");
+  await oeffne(cdp, "Schreiben.md");
+  const ruhe = await warteRuhe(cdp, fake);
+  // Antworten, die auf Satzzeichen enden: nur dann darf die Kette nach der Uebernahme weiterfragen (mitten im Wort nicht).
+  fake.setAntworten([["bis ", "zum ", "Meer."], ["Dann ", "baden ", "wir."]]);
+  try {
+    let f0 = fake.fertig();
+    await typeText(cdp, " ");
+    const g1 = await warteAufAntwort(cdp, fake, f0, 4000);
+    f0 = fake.fertig();
+    const n0 = fake.chat() + fake.comp();
+    await TAB(cdp);
+    triggerAt = Date.now(); // der Ausloeser der Kette ist die Uebernahme, kein Tastendruck
+    const g2 = await warteAufAntwort(cdp, fake, f0, 4000);
+    const n1 = fake.chat() + fake.comp();
+    await TAB(cdp);
+    await sleep(200);
+    const z = await zeile(cdp, 2);
+    const gh = await ghost(cdp);
+    record("G18 Tab-Kette", g1 === "bis zum Meer." && g2 === " Dann baden wir." && n1 === n0 + 1 && z.endsWith("bis zum Meer. Dann baden wir.") && gh === null, `erster Ghost ${JSON.stringify(g1)}, nach Tab ohne Tastendruck ${n1 - n0} Anfrage(n) und Ghost ${JSON.stringify(g2)}, nach zweitem Tab Zeile ${JSON.stringify(z)}, Ghost ${JSON.stringify(gh)} || Ausgangslage: ${ruhe}`);
+  } finally { fake.setAntworten([]); }
+}
+
+async function g19(cdp: Cdp, fake: FakeLlm): Promise<void> {
+  console.log("\nG19 · Kein Endpunkt: Klick oeffnet die Einstellungen, schaltet nicht um");
+  await oeffne(cdp, "Schreiben.md");
+  const ruhe = await warteRuhe(cdp, fake);
+  await removeFakeManager(cdp); // ohne Manager loest das Plugin keinen Endpunkt auf
+  try {
+    const n0 = fake.chat() + fake.comp();
+    await typeText(cdp, " ");
+    const warn = await pollUntil<{ label: string }>(cdp, `const s = document.querySelector(".ghostline-status.is-warning"); return s && !s.hasAttribute("aria-pressed") ? { label: s.getAttribute("aria-label") ?? "" } : null;`, 3000, 50);
+    const n1 = fake.chat() + fake.comp();
+    if (!warn) { record("G19 Kein Endpunkt", false, `kein is-warning ohne aria-pressed binnen 3000 ms (Status ${JSON.stringify((await statusKlassen(cdp)).cls)}), Fake-Zaehler ${n0}→${n1} || Ausgangslage: ${ruhe}`); return; }
+    // In der Zweitinstanz oeffnet Obsidian die Einstellungen als eigenes Pop-out (AGENTS.md § Staging-Vaults) — ein
+    // DOM-Check im Hauptfenster sieht sie nicht. Gemessen wird deshalb der Aufruf selbst (Zaehler um app.setting.open)
+    // und der aktive Tab danach.
+    await cdp.evaluate(`
+      const s = app.setting;
+      if (s && !s.__smokeOpen) { s.__smokeOpen = s.open; window.__smokeSettingOpened = 0; s.open = function (...a) { window.__smokeSettingOpened += 1; return s.__smokeOpen.apply(this, a); }; }
+      return { ok: true };
+    `);
+    await clickReal(cdp, `document.querySelector(".ghostline-status")`);
+    const offen = await pollUntil<{ tab: string; n: number }>(cdp, `const t = app.setting && app.setting.activeTab; const n = window.__smokeSettingOpened ?? 0; return n > 0 && t ? { tab: String(t.id ?? ""), n } : null;`, 3000, 50);
+    const nach = await statusKlassen(cdp);
+    const an = (await cdp.evaluate<{ e: boolean }>(`return { e: app.plugins.plugins[${q(PLUGIN_ID)}].settings.enabled === true };`)).e;
+    record("G19 Kein Endpunkt", offen?.tab === PLUGIN_ID && an && nach.pressed === null && !nach.cls.includes("is-off") && n1 === n0, `Label ${JSON.stringify(warn.label.slice(0, 80))}, aria-pressed fehlt; echter Klick: Einstellungen ${offen ? `geoeffnet (${offen.n}x app.setting.open), aktiver Tab ${JSON.stringify(offen.tab)}` : "NICHT geoeffnet binnen 3000 ms"}, danach aria-pressed ${JSON.stringify(nach.pressed)}, Klassen "${nach.cls.split(/\s+/).filter((c) => c.startsWith("is-")).join(" ")}", enabled ${String(an)}; Fake-Zaehler ${n0}→${n1} || Ausgangslage: ${ruhe}`);
+  } finally {
+    await cdp.evaluate(`
+      const s = app.setting;
+      if (s && s.__smokeOpen) { s.open = s.__smokeOpen; delete s.__smokeOpen; delete window.__smokeSettingOpened; }
+      if (s && typeof s.close === "function") s.close();
+      return { ok: true };
+    `);
+    await installFakeManager(cdp, fake.url);
+  }
+}
+
 // ───────────────────────── main ─────────────────────────
 
 /** Eine Gruppe von Pruefpunkten: wirft sie, werden ihre noch fehlenden Punkte als "nichts gemessen" mit dem
@@ -805,7 +924,7 @@ async function main(): Promise<void> {
   const port = portAus(argv);
   const vaultArg = argv.indexOf("--vault");
   const vaultFilter = vaultArg >= 0 ? argv[vaultArg + 1] : REPO_NAME;
-  const alleNamen = Array.from({ length: 16 }, (_, i) => `G${i + 1}`);
+  const alleNamen = Array.from({ length: 19 }, (_, i) => `G${i + 1}`);
   const warnungen: string[] = [];
   const fehler: string[] = [];
   let fake: FakeLlm | null = null;
@@ -854,6 +973,9 @@ async function main(): Promise<void> {
     await gruppe(["G12"], async () => { await g12(c, f); await spur("G12"); });
     await gruppe(["G13", "G14"], async () => { await g13und14(c, f); await spur("G13/14"); });
     await gruppe(["G15"], async () => { await g15(c, f); await spur("G15"); });
+    await gruppe(["G17"], async () => { await g17(c, f); await spur("G17"); });
+    await gruppe(["G18"], async () => { await g18(c, f); await spur("G18"); });
+    await gruppe(["G19"], async () => { await g19(c, f); await spur("G19"); });
     // Vim zuletzt: das Umschalten von vimMode laesst im laufenden Renderer Vim-Zustand zurueck
     // (gemessen im ersten Lauf: ein Rest davon veraenderte in G10 den Notiztext).
     await gruppe(["G9"], async () => { await g9(c); });
