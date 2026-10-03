@@ -99,7 +99,7 @@ export class GhostlineSettingTab extends PluginSettingTab {
       app: this.app, containerEl: host, capability: "chat", caller: "ghostline",
       choice: () => this.plugin.settings.choice,
       setChoice: async (c) => { this.plugin.settings.choice = c; await this.plugin.saveSettings(); await this.plugin.target(); this.refreshUi(); },
-      local: () => [],
+      local: () => [], pluginId: this.plugin.manifest.id,
       strings: {
         managed: t("src.managed"), managedDesc: t("src.managedDesc"), openManager: t("src.openManager"),
         pickEndpoint: t("src.pickEndpoint"), automatic: t("src.automatic"), model: t("set.endpoint"),

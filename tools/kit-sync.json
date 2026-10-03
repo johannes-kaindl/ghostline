@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.47.0"
+      "ref": "0.48.1"
     },
     "code-kit": {
-      "ref": "0.10.0"
+      "ref": "0.11.0"
     }
   },
   "targets": [
@@ -24,7 +24,9 @@
         "ignore",
         "timeout",
         "model-choice",
-        "think-splitter"
+        "think-splitter",
+        "endpoint_diagnostics",
+        "model-list-cache"
       ]
     },
     {
@@ -40,7 +42,8 @@
       "source": "obsidian-kit",
       "from": "src/pure",
       "modules": [
-        "endpoint-source"
+        "endpoint-source",
+        "secrets"
       ],
       "rewrite": [
         [
@@ -74,7 +77,10 @@
         "clock",
         "help-setting",
         "folder-suggest",
-        "clipboard"
+        "clipboard",
+        "secrets",
+        "endpoint-secrets",
+        "endpoint-list"
       ],
       "rewrite": [
         [
