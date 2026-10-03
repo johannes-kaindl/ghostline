@@ -1,0 +1,9 @@
+{
+  "source": "code-kit",
+  "version": "0.10.0",
+  "sha": "345c03f",
+  "vendored": "sse.ts, endpoint.ts, endpoint_config.ts, error_body.ts, i18n.ts, settings.ts, reasoning.ts, sampling-profiles.ts, ignore.ts, timeout.ts, model-choice.ts, think-splitter.ts, clipboard.ts",
+  "obsidian_kit_version": "0.47.0",
+  "obsidian_kit_sha": "7e74c35",
+  "obsidian_kit_vendored": "endpoint-source.ts"
+}

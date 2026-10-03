@@ -8,4 +8,4 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
--
+- Initial scaffold: manifest, build, vendored kit modules, settings model.

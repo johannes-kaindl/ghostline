@@ -1,0 +1,103 @@
+{
+  "sources": {
+    "obsidian-kit": {
+      "ref": "0.47.0"
+    },
+    "code-kit": {
+      "ref": "0.10.0"
+    }
+  },
+  "targets": [
+    {
+      "dir": "src/vendor/kit",
+      "source": "code-kit",
+      "from": "src/ts/pure",
+      "modules": [
+        "sse",
+        "endpoint",
+        "endpoint_config",
+        "error_body",
+        "i18n",
+        "settings",
+        "reasoning",
+        "sampling-profiles",
+        "ignore",
+        "timeout",
+        "model-choice",
+        "think-splitter"
+      ]
+    },
+    {
+      "dir": "src/vendor/kit",
+      "source": "code-kit",
+      "from": "src/ts/web",
+      "modules": [
+        "clipboard"
+      ]
+    },
+    {
+      "dir": "src/vendor/kit",
+      "source": "obsidian-kit",
+      "from": "src/pure",
+      "modules": [
+        "endpoint-source"
+      ],
+      "rewrite": [
+        [
+          "../vendor/code-kit/pure/",
+          "./"
+        ],
+        [
+          "../vendor/code-kit/web/",
+          "./"
+        ],
+        [
+          "../pure/",
+          "./"
+        ]
+      ]
+    },
+    {
+      "dir": "src/vendor/kit-obsidian",
+      "source": "obsidian-kit",
+      "from": "src/obsidian",
+      "modules": [
+        "settings_walker",
+        "endpoint-source",
+        "model-picker",
+        "request-section",
+        "request-session",
+        "collapsible",
+        "chat-client",
+        "chat-transport",
+        "shortcuts-bridge",
+        "clock",
+        "help-setting",
+        "folder-suggest",
+        "clipboard"
+      ],
+      "rewrite": [
+        [
+          "../pure/",
+          "../kit/"
+        ],
+        [
+          "../vendor/code-kit/pure/",
+          "../kit/"
+        ],
+        [
+          "../vendor/code-kit/web/",
+          "../kit/"
+        ]
+      ]
+    },
+    {
+      "dir": "tests/vendor/kit",
+      "source": "obsidian-kit",
+      "from": "src/testing",
+      "modules": [
+        "obsidian-mock"
+      ]
+    }
+  ]
+}

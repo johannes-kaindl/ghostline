@@ -1,0 +1,2 @@
+/* Ghostline — nur Theme-Variablen (UI-STANDARD §3). */
+.ghostline-ghost { color: var(--text-faint); pointer-events: none; white-space: pre; }
