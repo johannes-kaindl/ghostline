@@ -56,7 +56,11 @@ const REDACT_MARK = "[redacted-private-key]";
 type Zustand = "gruen" | "rot" | "uebersprungen" | "nichts gemessen";
 interface Check { name: string; zustand: Zustand; detail: string }
 const checks: Check[] = [];
+/** Zeitnotizen der Ghost-Wartefunktionen (Zeit bis zum ersten Vorschlag, Ankunft der Anfrage am Fake), die der naechste Pruefpunkt in seinen Detailtext uebernimmt. */
+let zeitNotizen: string[] = [];
+let triggerAt = 0;
 function record(name: string, passed: boolean, detail: string): void {
+  if (zeitNotizen.length) { detail = `${detail} || Zeit: ${zeitNotizen.join(" ; ")}`; zeitNotizen = []; }
   checks.push({ name, zustand: passed ? "gruen" : "rot", detail });
   console.log(`${passed ? "  ✓" : "  ✗"} ${name} — ${detail}`);
 }
@@ -87,7 +91,7 @@ async function pressChar(cdp: Cdp, ch: string): Promise<void> {
   await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...common });
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
 }
-async function typeText(cdp: Cdp, text: string): Promise<void> { await cdp.send("Input.insertText", { text }); }
+async function typeText(cdp: Cdp, text: string): Promise<void> { triggerAt = Date.now(); await cdp.send("Input.insertText", { text }); }
 
 const TAB = (cdp: Cdp): Promise<void> => pressKey(cdp, "Tab", "Tab", 9);
 const ARROW_RIGHT = (cdp: Cdp): Promise<void> => pressKey(cdp, "ArrowRight", "ArrowRight", 39);
@@ -100,16 +104,54 @@ async function ghost(cdp: Cdp): Promise<string | null> {
 async function warteAufGhost(cdp: Cdp, maxMs: number): Promise<{ t: string; ms: number } | null> {
   const t0 = Date.now();
   const r = await pollUntil<{ t: string }>(cdp, `const g = document.querySelector(".workspace-leaf.mod-active .ghostline-ghost"); return g && g.textContent ? { t: g.textContent } : null;`, maxMs, 40);
+  const jetzt = Date.now();
+  if (r) zeitNotizen.push(`Ghost ${jetzt - triggerAt} ms nach Trigger (Poll 40 ms; Fake-Ankunft ${ankunftText(fakeRef)})`);
+  else zeitNotizen.push(`kein Ghost ${jetzt - triggerAt} ms nach Trigger (Fake-Ankunft ${ankunftText(fakeRef)})`);
   return r ? { t: r.t, ms: Date.now() - t0 } : null;
+}
+let fakeRef: FakeLlm | null = null;
+/** Ankunft der ersten Anfrage nach dem Trigger, relativ zum Trigger. */
+function ankunftText(fake: FakeLlm | null): string {
+  const a = fake?.ankuenfte().find((z) => z >= triggerAt);
+  return a === undefined ? "keine Anfrage seit Trigger" : `${a - triggerAt} ms`;
+}
+/** Wartet auf Ruhe VOR einem Trigger: kein Ghost (sonst Escape), Status nicht "is-checking", nichts unterwegs
+ *  und der Fake-Zaehler 600 ms unveraendert (laenger als delayMs 300 + Ketten-Timer). Ein Ghost oder eine Anfrage,
+ *  die hier noch auftaucht, ist Rest des Vorgaengers (Kettenanfrage nach Tab, spaete Antwort) und wird benannt. */
+async function warteRuhe(cdp: Cdp, fake: FakeLlm, maxMs = 6000): Promise<string> {
+  const t0 = Date.now();
+  const funde: string[] = [];
+  let stabilSeit = Date.now();
+  let zaehler = fake.chat() + fake.comp();
+  while (Date.now() - t0 < maxMs) {
+    const g = await ghost(cdp);
+    const st = (await statusKlassen(cdp)).cls;
+    const n = fake.chat() + fake.comp();
+    if (g !== null) { funde.push(`Ghost ${JSON.stringify(g)} nach ${Date.now() - t0} ms`); await ESCAPE(cdp); stabilSeit = Date.now(); }
+    if (n !== zaehler) { funde.push(`neue Anfrage nach ${Date.now() - t0} ms`); zaehler = n; stabilSeit = Date.now(); }
+    if (st.includes("is-checking") || fake.unterwegs() > 0) stabilSeit = Date.now();
+    if (Date.now() - stabilSeit >= 600) return `Ruhe nach ${Date.now() - t0} ms, Reste: ${funde.length ? funde.join(" | ") : "keine"}`;
+    await sleep(50);
+  }
+  return `KEINE Ruhe binnen ${maxMs} ms, Reste: ${funde.join(" | ") || "keine"}`;
 }
 /** Wartet, bis der Fake die Antwort VOLLSTAENDIG gesendet hat (und eine Anfrage nach `n0` kam), und gibt
  *  dann den stabilen Ghost zurueck. Nicht auf die Statusleiste warten: vor dem Timer (delayMs) steht sie
  *  noch auf "bereit" und die Messung liefe vor der Anfrage los. */
 async function warteAufAntwort(cdp: Cdp, fake: FakeLlm, f0: number, maxMs: number): Promise<string | null> {
+  fakeRef = fake;
   const t0 = Date.now();
-  while (fake.fertig() <= f0 && Date.now() - t0 < maxMs) await sleep(25);
+  let erster: number | null = null;
+  while (fake.fertig() <= f0 && Date.now() - t0 < maxMs) {
+    if (erster === null && (await ghost(cdp)) !== null) erster = Date.now();
+    await sleep(25);
+  }
+  const fertigNach = Date.now() - triggerAt;
   await sleep(200); // letzter Chunk -> Plugin -> Ghost
-  return ghost(cdp);
+  const g = await ghost(cdp);
+  if (erster === null && g !== null) erster = Date.now();
+  zeitNotizen.push(`erster Ghost ${erster === null ? "keiner" : `${erster - triggerAt} ms`} nach Trigger (Poll 25 ms), Fake-Ankunft ${ankunftText(fake)}, Antwort fertig ${fertigNach} ms`);
+  return g;
 }
 async function statusKlassen(cdp: Cdp): Promise<{ cls: string; pressed: string | null; label: string | null }> {
   return cdp.evaluate(`const s = document.querySelector(".ghostline-status"); return s ? { cls: s.className, pressed: s.getAttribute("aria-pressed"), label: s.getAttribute("aria-label") } : { cls: "", pressed: null, label: null };`);
@@ -126,7 +168,7 @@ async function docText(cdp: Cdp): Promise<string> {
 interface Aufzeichnung { path: string; body: string; model: string | null }
 interface FakeLlm {
   url: string;
-  chat(): number; comp(): number; frueherSchluss(): number; unterwegs(): number; fertig(): number;
+  ankuenfte(): number[]; chat(): number; comp(): number; frueherSchluss(): number; unterwegs(): number; fertig(): number;
   letzte(): Aufzeichnung | null;
   setPause(ms: number): void;
   stoppen(): Promise<void>; starten(): Promise<void>; schliessen(): Promise<void>;
@@ -138,6 +180,7 @@ const STUECKE = ["in ", "den ", "Park"];
 async function startFakeLlm(): Promise<FakeLlm> {
   let chat = 0, comp = 0, frueh = 0, unterwegs = 0, pause = 0, fertig = 0;
   let letzte: Aufzeichnung | null = null;
+  const ankuenfte: number[] = [];
   let port = 0;
   let server: Server | null = null;
 
@@ -173,6 +216,7 @@ async function startFakeLlm(): Promise<FakeLlm> {
     let body = "";
     req.on("data", (c: Buffer) => { body += c.toString("utf8"); });
     req.on("end", () => {
+      ankuenfte.push(Date.now());
       if (kind === "chat") chat += 1; else comp += 1;
       let model: string | null = null;
       try { model = ((JSON.parse(body) as { model?: unknown }).model as string | undefined) ?? null; } catch { model = null; }
@@ -208,7 +252,7 @@ async function startFakeLlm(): Promise<FakeLlm> {
   await starten();
   return {
     get url() { return `http://127.0.0.1:${port}`; },
-    chat: () => chat, comp: () => comp, frueherSchluss: () => frueh, unterwegs: () => unterwegs, fertig: () => fertig,
+    ankuenfte: () => [...ankuenfte], chat: () => chat, comp: () => comp, frueherSchluss: () => frueh, unterwegs: () => unterwegs, fertig: () => fertig,
     letzte: () => letzte, setPause: (ms) => { pause = ms; },
     starten, stoppen, schliessen: stoppen,
   };
@@ -449,11 +493,14 @@ async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
   // G1
   await oeffne(cdp, "Schreiben.md");
   const n0 = fake.chat() + fake.comp();
+  fakeRef = fake;
   await typeText(cdp, " ");
   const g1 = await warteAufGhost(cdp, 2000);
   record("G1 Vorschlag erscheint", g1 !== null, g1 ? `Ghost ${JSON.stringify(g1.t)} nach ${g1.ms} ms, Fake sah ${fake.chat() + fake.comp() - n0} Anfrage(n)` : `kein .ghostline-ghost binnen 2000 ms, Fake sah ${fake.chat() + fake.comp() - n0} Anfrage(n), Status ${JSON.stringify((await statusKlassen(cdp)).cls)}`);
   // G2 — frisch, damit G1 nicht zur Vorbedingung wird
   await oeffne(cdp, "Schreiben.md");
+  const ruheG2 = await warteRuhe(cdp, fake);
+  console.log(`    [G2] ${ruheG2}`);
   f0 = fake.fertig();
   await typeText(cdp, " ");
   const vor2 = await warteAufAntwort(cdp, fake, f0, 4000);
@@ -464,6 +511,8 @@ async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
   record("G2 Tab uebernimmt", vor2 !== null && z2.endsWith("in den Park") && gh2 === null, `Ghost vorher ${JSON.stringify(vor2)}, Zeile ${JSON.stringify(z2)}, Ghost danach ${JSON.stringify(gh2)}`);
   // G3
   await oeffne(cdp, "Schreiben.md");
+  const ruheG3 = await warteRuhe(cdp, fake);
+  console.log(`    [G3] ${ruheG3}`);
   f0 = fake.fertig();
   await typeText(cdp, " ");
   const vor3 = await warteAufAntwort(cdp, fake, f0, 4000);
@@ -471,9 +520,11 @@ async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
   await sleep(200);
   const z3 = await zeile(cdp, 2);
   const gh3 = await ghost(cdp);
-  record("G3 Pfeil rechts nimmt ein Wort", vor3 !== null && z3.endsWith("in") && gh3 === " den Park", `Ghost vorher ${JSON.stringify(vor3)}, Zeile ${JSON.stringify(z3)}, Ghost danach ${JSON.stringify(gh3)}`);
+  record("G3 Pfeil rechts nimmt ein Wort", vor3 !== null && z3.endsWith("in") && gh3 === " den Park", `Ghost vorher ${JSON.stringify(vor3)}, Zeile ${JSON.stringify(z3)}, Ghost danach ${JSON.stringify(gh3)} || Ausgangslage: ${ruheG3}`);
   // G4 — Escape auf dem Rest-Ghost von G3 waere ein Folgefehler; frisch
   await oeffne(cdp, "Schreiben.md");
+  const ruheG4 = await warteRuhe(cdp, fake);
+  console.log(`    [G4] ${ruheG4}`);
   f0 = fake.fertig();
   await typeText(cdp, " ");
   const vor4 = await warteAufAntwort(cdp, fake, f0, 4000);
@@ -485,6 +536,8 @@ async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
   record("G4 Escape verwirft", vor4 !== null && gh4 === null && z4 === z4vor, `Ghost vorher ${JSON.stringify(vor4)}, danach ${JSON.stringify(gh4)}, Zeile vorher ${JSON.stringify(z4vor)} / nachher ${JSON.stringify(z4)}`);
   // G5
   await oeffne(cdp, "Schreiben.md");
+  const ruheG5 = await warteRuhe(cdp, fake);
+  console.log(`    [G5] ${ruheG5}`);
   f0 = fake.fertig();
   await typeText(cdp, " ");
   const vor5 = await warteAufAntwort(cdp, fake, f0, 4000);

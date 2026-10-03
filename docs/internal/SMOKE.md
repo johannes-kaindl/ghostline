@@ -39,3 +39,7 @@ Der Treiber prüft vor jedem Lauf mit einem synthetischen undichten Body, dass d
 ## Gegenprobe G16
 
 Der Treiber prüft vor jedem Lauf mit einer synthetischen `data.json`, die `apiKey` und `endpoints` enthält, dass die Auswertung rot werden kann (Selbsttest); eine leere oder unlesbare Datei wird als „nichts gemessen“ geführt, nicht als grün. Der Punkt liest die Datei von der Platte, nicht aus dem Renderer.
+
+## Zeitmessung und Ruhe vor dem Trigger (Task 13c)
+
+Jeder Punkt, der auf einen Ghost wartet, hängt seinem Detailtext „Zeit:“ an: Millisekunden vom Trigger (Texteingabe) bis zum ersten `.ghostline-ghost` (Poll 25 bzw. 40 ms) und Ankunft der ersten Anfrage am Fake relativ zum Trigger. G2 bis G5 warten nach dem Öffnen der Notiz auf Ruhe (`warteRuhe`): kein Ghost (sonst Escape), Status nicht `is-checking`, nichts unterwegs, Fake-Zähler 600 ms unverändert. Reste, die dabei auftauchen (spätes Ghost, Kettenanfrage nach Tab), stehen in der Konsole `[Gn]` und bei G3 im Detailtext („Ausgangslage“). Hintergrund: `warteAufAntwort` wartet auf `fertig() > f0`; eine noch laufende Antwort des Vorgängers würde diese Bedingung vorzeitig erfüllen und „Ghost vorher null“ erzeugen.
