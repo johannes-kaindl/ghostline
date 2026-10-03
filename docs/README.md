@@ -43,3 +43,7 @@ Each entry starts with what you see, then the cause and what to do.
 - **Status bar: "Empty responses — is the model thinking?" or "This model always thinks".** The model spends its answer on reasoning and returns no text. Choose a model without thinking, or check the thinking level in the Request section of the settings.
 - **Status bar: "Context too long for the model — lower the context length in the settings".** Lower "Context before the cursor" in the settings.
 - **A hotkey does nothing else any more.** A hotkey assigned to an accept command is swallowed even when no suggestion is visible, see [the note on hotkeys](explanation/privacy.md#hotkeys-on-the-accept-commands). Use Tab, Right arrow and Escape instead.
+
+## Getting help
+
+If this page does not solve your problem, open an issue at <https://github.com/johannes-kaindl/ghostline/issues>. Please include the status bar message, your Obsidian version and the model you use.
