@@ -1,2 +1,12 @@
 /* Ghostline — nur Theme-Variablen (UI-STANDARD §3). */
 .ghostline-ghost { color: var(--text-faint); pointer-events: none; white-space: pre; }
+.ghostline-status { display: inline-flex; align-items: center; gap: var(--size-4-1); cursor: pointer; }
+.ghostline-status-icon { display: inline-flex; }
+.ghostline-status.is-ok .ghostline-status-icon { color: var(--color-green); }
+.ghostline-status.is-error .ghostline-status-icon { color: var(--color-red); }
+.ghostline-status.is-warning .ghostline-status-icon { color: var(--color-orange); }
+.ghostline-status.is-checking .ghostline-status-icon,
+.ghostline-status.is-off .ghostline-status-icon { color: var(--text-muted); }
+.ghostline-status.is-checking .ghostline-status-icon svg { animation: ghostline-spin 1s linear infinite; }
+@keyframes ghostline-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ghostline-status.is-checking .ghostline-status-icon svg { animation: none; } }
