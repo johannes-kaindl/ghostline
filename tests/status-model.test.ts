@@ -5,6 +5,14 @@ import { deviationNotice, deviationDetail } from "../src/obsidian/deviation-text
 import { t } from "../src/vendor/kit/i18n";
 
 describe("applyStatus", () => {
+  it("kappt lange Gründe bei 200 Zeichen mit Auslassungszeichen (Proxys spiegeln Prompts, Final-Review M4)", () => {
+    const long = "x".repeat(500);
+    const s = applyStatus({ enabled: true, kind: "ok" }, { kind: "error", reason: long }, true);
+    expect(s.reason!.length).toBe(200);
+    expect(s.reason!.endsWith("…")).toBe(true);
+    const short = applyStatus({ enabled: true, kind: "ok" }, { kind: "error", reason: "y".repeat(200) }, true);
+    expect(short.reason).toBe("y".repeat(200));
+  });
   it("übernimmt den Patch und erzwingt den aktuellen enabled-Wert", () => {
     const s = applyStatus({ enabled: true, kind: "ok" }, { kind: "error", reason: "x" }, false);
     expect(s).toEqual({ enabled: false, kind: "error", reason: "x" });
