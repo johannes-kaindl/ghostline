@@ -5,6 +5,7 @@
  *
  * ## Zweitinstanz (der richtige Ort fuer diesen Lauf — eigenes Profil, eigener Port)
  *
+ * Der Port ist PFLICHT (`--port <n>`, dokumentierter Wert dieses Rezepts: 9363); der Treiber hat keinen Default.
  * Reihenfolge laut obsidian-plugins/AGENTS.md § Staging-Vaults (a)-(c):
  *
  *   echo "$STAGING_VAULTS_DIR"                                          # muss gesetzt sein (~/.zshenv)
@@ -38,6 +39,7 @@ import { join } from "node:path";
 import { cwd } from "node:process";
 
 import { Cdp, attachTo, clickReal, closeExtraLeaves, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { ERROR_PAUSE_MS } from "../src/core/settings.js";
 import { buildVault, requireEigenerBuild, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
 
 const REPO_NAME = "ghostline";
@@ -46,7 +48,7 @@ const MANAGER_ID = "llm-endpoint-manager";
 const REPO_ROOT = cwd();
 const FIXTURE_DIR = join(REPO_ROOT, "fixtures/vault");
 const NOTES_DIR = join(FIXTURE_DIR, "notes");
-const NOTES = ["Schreiben.md", "Code.md", "Clippings/Fremd.md", "Aus.md", "Liste.md", "Schluessel.md"] as const;
+const NOTES = ["Schreiben.md", "Code.md", "Clippings/Fremd.md", "Aus.md", "An.md", "Liste.md", "Schluessel.md"] as const;
 const CHAT_MODEL = "smoke-chat";
 const FIM_MODEL = "qwen2.5-coder-smoke";
 const REDACT_MARK = "[redacted-private-key]";
@@ -520,9 +522,27 @@ async function g8(cdp: Cdp, fake: FakeLlm): Promise<void> {
     alle = alle && ok;
     teile.push(`${f.name}: Ghost ${JSON.stringify(gh)}, Zaehler ${n0}→${n1}, Zeichen getippt ${getippt}`);
   }
-  record("G8 Keine Vorschlaege in Code, Frontmatter, Ordner, ghostline: false", alle, teile.join(" | "));
+  // Positivkontrollen je Fall: ohne sie bliebe G8 auch gruen, wenn das Plugin aus anderem Grund tot waere.
+  const kontrollen: string[] = [];
+  let kontrolleOk = true;
+  const mitGhost = async (pfad: (typeof NOTES)[number]): Promise<string | null> => {
+    await oeffne(cdp, pfad);
+    await typeText(cdp, " ");
+    return (await warteAufGhost(cdp, 2500))?.t ?? null;
+  };
+  const gSchreiben = await mitGhost("Schreiben.md");
+  kontrollen.push(`Kontrolle Codeblock/Frontmatter (wie G1): Schreiben.md Ghost ${JSON.stringify(gSchreiben)}`);
+  kontrolleOk = kontrolleOk && gSchreiben !== null;
+  const gAn = await mitGhost("An.md");
+  kontrollen.push(`Kontrolle ghostline-Flag: An.md (ohne Flag) Ghost ${JSON.stringify(gAn)}`);
+  kontrolleOk = kontrolleOk && gAn !== null;
+  await setPluginSetting(cdp, PLUGIN_ID, "excludePatterns", "");
+  const gFremd = await mitGhost("Clippings/Fremd.md");
+  await setzeEinstellungenZurueck(cdp);
+  kontrollen.push(`Kontrolle Ordner: Clippings/Fremd.md mit leerem excludePatterns Ghost ${JSON.stringify(gFremd)}`);
+  kontrolleOk = kontrolleOk && gFremd !== null;
+  record("G8 Keine Vorschlaege in Code, Frontmatter, Ordner, ghostline: false", alle && kontrolleOk, `${teile.join(" | ")} || ${kontrollen.join(" | ")}`);
 }
-
 async function g9(cdp: Cdp): Promise<void> {
   console.log("\nG9 · Vim");
   const vorher = (await cdp.evaluate<{ v: unknown }>(`return { v: app.vault.getConfig("vimMode") ?? null };`)).v;
@@ -535,7 +555,6 @@ async function g9(cdp: Cdp): Promise<void> {
     await sleep(150);
     await typeText(cdp, " ");
     const g = await warteAufGhost(cdp, 3000);
-    await Promise.resolve(null);
     await ESCAPE(cdp);
     await sleep(300);
     const gh = await ghost(cdp);
@@ -625,7 +644,7 @@ async function g12(cdp: Cdp, fake: FakeLlm): Promise<void> {
   }
   // Die Fehler-Pause (10 s, ERROR_PAUSE_MS) haelt automatische Ausloeser zurueck; manuell ist sie egal.
   // Abwarten, damit G13-G15 nicht an der Pause des Vorgaengers scheitern.
-  await sleep(10_500);
+  await sleep(ERROR_PAUSE_MS + 500);
 }
 
 async function g13und14(cdp: Cdp, fake: FakeLlm): Promise<void> {
@@ -660,6 +679,7 @@ async function g15(cdp: Cdp, fake: FakeLlm): Promise<void> {
   const dok = original("Schluessel.md");
   const key = dok.slice(dok.indexOf("-----BEGIN"), dok.indexOf("-----END") + "-----END RSA PRIVATE KEY-----".length);
   const nachKey = dok.length - dok.indexOf("-----END RSA PRIVATE KEY-----") - "-----END RSA PRIVATE KEY-----".length;
+  if (!(nachKey < 300 && 300 < nachKey + key.length)) { nichtGemessen("G15 Schluessel geschwaerzt", `Fixture gedriftet: Fenstergrenze liegt nicht im Schluessel (Text hinter dem Schluessel ${nachKey}, contextChars 300, Schluessel ${key.length})`); return; }
   await setPluginSetting(cdp, PLUGIN_ID, "contextChars", 300);
   await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].targetPromise = null; return { ok: true };`);
   await oeffne(cdp, "Schluessel.md");
@@ -676,76 +696,109 @@ async function g15(cdp: Cdp, fake: FakeLlm): Promise<void> {
 
 // ───────────────────────── main ─────────────────────────
 
+/** Eine Gruppe von Pruefpunkten: wirft sie, werden ihre noch fehlenden Punkte als "nichts gemessen" mit dem
+ *  Fehlertext gefuehrt und der Lauf geht weiter — ein Abbruch darf die Bilanz nicht verschlucken. */
+async function gruppe(namen: string[], fn: () => Promise<void>): Promise<void> {
+  try { await fn(); } catch (e) {
+    const msg = (e as Error).message;
+    console.log(`  ! Gruppe ${namen.join("/")} abgebrochen: ${msg}`);
+    for (const n of namen) if (!checks.some((c) => c.name.startsWith(`${n} `))) nichtGemessen(n, `Gruppe abgebrochen: ${msg}`);
+  }
+}
+
+function portAus(argv: string[]): number {
+  const i = argv.indexOf("--port");
+  const raw = i >= 0 ? argv[i + 1] : undefined;
+  const n = Number(raw);
+  if (raw === undefined || !Number.isInteger(n) || n < 1024 || n > 65535) throw new Error(`--port <Zahl> fehlt oder ist ungueltig (${JSON.stringify(raw)}). Den Port der eigenen Zweitinstanz angeben (Rezept im Dateikopf).`);
+  return n;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.includes("--setup")) { setupVault(); return; }
-  const portArg = argv.indexOf("--port");
-  const port = portArg >= 0 ? Number(argv[portArg + 1]) : 9363;
+  const port = portAus(argv);
   const vaultArg = argv.indexOf("--vault");
   const vaultFilter = vaultArg >= 0 ? argv[vaultArg + 1] : REPO_NAME;
-
-  selbsttestG15();
-  const fake = await startFakeLlm();
-  console.log(`Fake-LLM: ${fake.url}`);
-  const cdp = await attachTo("workspace", port, vaultFilter);
-  if (!cdp) { await fake.schliessen(); throw new Error(`Kein Obsidian-Fenster fuer Vault "${vaultFilter}" auf Port ${port}.`); }
+  const alleNamen = Array.from({ length: 15 }, (_, i) => `G${i + 1}`);
   const warnungen: string[] = [];
+  const fehler: string[] = [];
+  let fake: FakeLlm | null = null;
+  let cdp: Cdp | null = null;
   let manager = false;
   try {
-    await cdp.mitschnitt((z) => { if (/error|exception/i.test(z)) warnungen.push(`Renderer: ${z}`); });
-    await requireVisible(cdp);
-    const v = await cdp.evaluate<{ name: string; basePath: string; configDir: string }>(`return { name: app.vault.getName(), basePath: app.vault.adapter.basePath, configDir: app.vault.configDir };`);
+    selbsttestG15();
+    fake = await startFakeLlm();
+    const f = fake;
+    console.log(`Fake-LLM: ${f.url}`);
+    cdp = await attachTo("workspace", port, vaultFilter);
+    if (!cdp) throw new Error(`Kein Obsidian-Fenster fuer Vault "${vaultFilter}" auf Port ${port}.`);
+    const c = cdp;
+    await c.mitschnitt((z) => { if (/error|exception/i.test(z)) warnungen.push(`Renderer: ${z}`); });
+    await requireVisible(c);
+    const v = await c.evaluate<{ name: string; basePath: string; configDir: string }>(`return { name: app.vault.getName(), basePath: app.vault.adapter.basePath, configDir: app.vault.configDir };`);
     console.log(`Vault: ${v.name} (${v.basePath})`);
-    requireEigenerBuild(join(v.basePath, v.configDir, "plugins", PLUGIN_ID, "main.js"), join(REPO_ROOT, "main.js"), (m) => warnungen.push(m));
-    await grundlage(cdp, v.name);
+    const herkunft = requireEigenerBuild(join(v.basePath, v.configDir, "plugins", PLUGIN_ID, "main.js"), join(REPO_ROOT, "main.js"), (m) => warnungen.push(m));
+    if (herkunft.art === "ungeklaert") throw new Error("Herkunft des Builds im Vault ungeklaert — ein Lauf gegen unbelegten Stand misst moeglicherweise fremden Code.");
+    await grundlage(c, v.name);
 
-    // Ausgangszustand VOR dem Lauf (Lehre 2026-10-01): Notizen, Einstellungen, Hotkey, Vim, Layout.
-    await entferneHotkey(cdp);
-    await cdp.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`);
-    await setzeNotizenZurueck(cdp);
-    await setzeEinstellungenZurueck(cdp);
-    await installFakeManager(cdp, fake.url);
+    // Ausgangszustand VOR dem Lauf (Lehre 2026-10-01): Pop-outs, Notizen, Einstellungen, Hotkey, Vim, Layout.
+    await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`);
+    await closeExtraLeaves(c);
+    await entferneHotkey(c);
+    await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`);
+    await setzeNotizenZurueck(c);
+    await setzeEinstellungenZurueck(c);
+    await installFakeManager(c, f.url);
     manager = true;
     await sleep(400);
 
     const spur = async (nach: string): Promise<void> => {
       if (!argv.includes("--spur")) return;
       await sleep(700);
-      const st = await statusKlassen(cdp);
-      console.log(`    [spur] nach ${nach}: ${st.cls.split(/\s+/).filter((c) => c.startsWith("is-")).join(" ")} | ${st.label ?? ""} | Fake chat ${fake.chat()} comp ${fake.comp()} unterwegs ${fake.unterwegs()}`);
+      const st = await statusKlassen(c);
+      console.log(`    [spur] nach ${nach}: ${st.cls.split(/\s+/).filter((k) => k.startsWith("is-")).join(" ")} | ${st.label ?? ""} | Fake chat ${f.chat()} comp ${f.comp()} unterwegs ${f.unterwegs()}`);
     };
-    await g1bis5(cdp, fake); await spur("G1-5");
-    await g6(cdp, fake); await spur("G6");
-    await g7(cdp, fake); await spur("G7");
-    await g8(cdp, fake); await spur("G8");
-    await g10(cdp, fake); await spur("G10");
-    await g11(cdp, fake); await spur("G11");
-    await g12(cdp, fake); await spur("G12");
-    await g13und14(cdp, fake); await spur("G13/14");
-    await g15(cdp, fake); await spur("G15");
+    await gruppe(["G1", "G2", "G3", "G4", "G5"], async () => { await g1bis5(c, f); await spur("G1-5"); });
+    await gruppe(["G6"], async () => { await g6(c, f); await spur("G6"); });
+    await gruppe(["G7"], async () => { await g7(c, f); await spur("G7"); });
+    await gruppe(["G8"], async () => { await g8(c, f); await spur("G8"); });
+    await gruppe(["G10"], async () => { await g10(c, f); await spur("G10"); });
+    await gruppe(["G11"], async () => { await g11(c, f); await spur("G11"); });
+    await gruppe(["G12"], async () => { await g12(c, f); await spur("G12"); });
+    await gruppe(["G13", "G14"], async () => { await g13und14(c, f); await spur("G13/14"); });
+    await gruppe(["G15"], async () => { await g15(c, f); await spur("G15"); });
     // Vim zuletzt: das Umschalten von vimMode laesst im laufenden Renderer Vim-Zustand zurueck
     // (gemessen im ersten Lauf: ein Rest davon veraenderte in G10 den Notiztext).
-    await g9(cdp);
+    await gruppe(["G9"], async () => { await g9(c); });
+  } catch (e) {
+    fehler.push((e as Error).message);
+    console.error(`\nABBRUCH: ${(e as Error).message}`);
   } finally {
-    await entferneHotkey(cdp).catch(() => undefined);
-    await cdp.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
-    if (manager) await removeFakeManager(cdp).catch(() => undefined);
-    await setzeNotizenZurueck(cdp).catch(() => undefined);
-    await setzeEinstellungenZurueck(cdp).catch(() => undefined);
-    const n = await closeExtraLeaves(cdp).catch(() => 0);
-    console.log(`\nAufgeraeumt: ${n} Leaves offen. Notices: ${await notices(cdp).catch(() => "?")}`);
-    cdp.close();
-    await fake.schliessen();
+    if (cdp) {
+      const c = cdp;
+      await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`).catch(() => undefined);
+      await entferneHotkey(c).catch(() => undefined);
+      await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
+      if (manager) await removeFakeManager(c).catch(() => undefined);
+      await setzeNotizenZurueck(c).catch(() => undefined);
+      await setzeEinstellungenZurueck(c).catch(() => undefined);
+      const n = await closeExtraLeaves(c).catch(() => 0);
+      console.log(`\nAufgeraeumt: ${n} Leaves offen. Notices: ${await notices(c).catch(() => "?")}`);
+      c.close();
+    }
+    if (fake) await fake.schliessen();
+    for (const n of alleNamen) {
+      if (!checks.some((k) => k.name.startsWith(`${n} `) || k.name === n)) nichtGemessen(n, fehler[0] ?? "kein Ergebnis aufgezeichnet");
+    }
+    const zaehle = (z: Zustand): number => checks.filter((k) => k.zustand === z).length;
+    const rot = checks.filter((k) => k.zustand === "rot");
+    console.log(`\nSmoke ${zaehle("gruen")} gruen · ${rot.length} rot · ${zaehle("uebersprungen")} uebersprungen · ${zaehle("nichts gemessen")} nichts gemessen · von ${alleNamen.length} Pruefpunkten`);
+    for (const w of warnungen) console.log(`WARNUNG: ${w}`);
+    if (rot.length) console.log(`Rot: ${rot.map((r) => r.name).join(" · ")}`);
+    const nichtGruen = checks.filter((k) => k.zustand !== "gruen").length;
+    if (nichtGruen > 0 || zaehle("gruen") !== alleNamen.length) process.exitCode = fehler.length ? 2 : 1;
   }
-  const gewollt = Array.from({ length: 15 }, (_, i) => `G${i + 1} `);
-  for (const praefix of gewollt) {
-    if (!checks.some((c) => c.name.startsWith(praefix))) nichtGemessen(praefix.trim(), "kein Ergebnis aufgezeichnet");
-  }
-  const zaehle = (z: Zustand): number => checks.filter((c) => c.zustand === z).length;
-  const rot = checks.filter((c) => c.zustand === "rot");
-  console.log(`\nSmoke ${zaehle("gruen")} gruen · ${rot.length} rot · ${zaehle("uebersprungen")} uebersprungen · ${zaehle("nichts gemessen")} nichts gemessen · von ${checks.length} Pruefpunkten`);
-  for (const w of warnungen) console.log(`WARNUNG: ${w}`);
-  if (rot.length) { console.log(`Rot: ${rot.map((r) => r.name).join(" · ")}`); process.exitCode = 1; }
 }
 
 main().catch((e: unknown) => { console.error(`\nABBRUCH: ${(e as Error).message}`); process.exitCode = 2; });
