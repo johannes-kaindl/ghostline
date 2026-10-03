@@ -7,7 +7,7 @@ import { blockKindAt } from "../core/context-type";
 import { buildContext } from "../core/context";
 import { choosePath } from "../core/path-choice";
 import { cleanCompletion } from "../core/postprocess";
-import { AFTER_CHARS, EMPTY_WARN_AFTER, ERROR_PAUSE_MS, type GhostlineSettings } from "../core/settings";
+import { AFTER_CHARS, EMPTY_WARN_AFTER, ERROR_PAUSE_MS, REQUEST_DEADLINE_MS, type GhostlineSettings } from "../core/settings";
 import { INITIAL, step, visible, type Effect, type SuggestionEvent, type SuggestionState } from "../core/suggestion";
 import { shouldTrigger } from "../core/trigger";
 import type { FimTemplate } from "../core/fim-templates";
@@ -15,12 +15,10 @@ import { ghostField, ghostOwn, setGhost } from "../editor/ghost-field";
 import { acceptSpec } from "../editor/ghost-keymap";
 import { completeParams, type CompletionPath } from "../llm/paths";
 
-/** Gesamtfrist je Anfrage. Der FIM-Client kennt weder Leerlauf- noch Erstes-Chunk-Frist; ein
- *  stummer Server würde die Session sonst ewig im Zustand „requesting“ halten. */
-export const REQUEST_DEADLINE_MS = 20_000;
-
 export interface Target { endpoint: EndpointConfig; model: string; family: FamilyId | null; backend: BackendId }
-export interface StatusSink { checking(): void; ok(lastFirstWordMs?: number): void; error(reason: string): void; warning(reason: string): void; noEndpoint(): void }
+export interface StatusSink { checking(): void; ok(lastFirstWordMs?: number): void; error(reason: string): void; warning(reason: string): void; noEndpoint(): void;
+  /** Setzt „checking“ zurück, wenn eine Anfrage abgebrochen wurde und kein Ergebnis folgt. */
+  idle(): void }
 export interface SessionDeps {
   clock: ClockPort;
   settings(): GhostlineSettings;
@@ -41,10 +39,14 @@ export class GhostSession implements PluginValue {
   private abort: AbortController | null = null;
   private manualNext = false;
   private lastPath: string | null = null;
+  private deadline: number | null = null;
+  private checkingShown = false;
+  private destroyed = false;
 
   constructor(private readonly view: EditorView, private readonly deps: SessionDeps) {}
 
   update(u: ViewUpdate): void {
+    if (this.destroyed) return;
     if (u.transactions.some((tr) => tr.annotation(ghostOwn) === true)) return;
     const path = this.deps.fileInfo(this.view)?.path ?? null;
     const switched = this.lastPath !== null && path !== this.lastPath;
@@ -88,7 +90,24 @@ export class GhostSession implements PluginValue {
     this.onTimer();
   }
 
-  destroy(): void { this.cancelTimer(); this.abort?.abort(); }
+  destroy(): void {
+    this.destroyed = true;
+    this.cancelTimer();
+    this.abortRequest();
+    this.state = INITIAL;
+  }
+
+  /** Nutzerabbruch: Anfrage und Fristuhr stoppen, einen stehengebliebenen Spinner zurücksetzen. */
+  private abortRequest(): void {
+    this.abort?.abort();
+    this.abort = null;
+    this.clearDeadline();
+    this.endChecking();
+  }
+
+  private clearDeadline(): void { if (this.deadline !== null) { this.deps.clock.clearTimeout(this.deadline); this.deadline = null; } }
+  private endChecking(): void { if (this.checkingShown) { this.checkingShown = false; this.deps.status.idle(); } }
+  private result(): void { this.checkingShown = false; }
 
   private dispatch(e: SuggestionEvent, runInserts = true): void {
     const r = step(this.state, e);
@@ -102,6 +121,7 @@ export class GhostSession implements PluginValue {
    *  (CodeMirror wirft dann), deshalb über einen Microtask. */
   private clearGhostLater(): void {
     queueMicrotask(() => {
+      if (this.destroyed) return;
       if (this.view.state.field(ghostField, false) !== null && visible(this.state) === "") this.view.dispatch({ effects: setGhost.of(null) });
     });
   }
@@ -110,7 +130,7 @@ export class GhostSession implements PluginValue {
     switch (eff.kind) {
       case "start-timer": this.cancelTimer(); this.timer = this.deps.clock.setTimeout(() => this.onTimer(), this.deps.settings().delayMs); break;
       case "cancel-timer": this.cancelTimer(); break;
-      case "abort-request": this.abort?.abort(); this.abort = null; break;
+      case "abort-request": this.abortRequest(); break;
       case "start-request": void this.startRequest(eff.requestId, eff.cursor); break;
       case "insert": if (runInserts) this.view.dispatch({ changes: { from: eff.at, insert: eff.text }, annotations: ghostOwn.of(true) }); break;
     }
@@ -140,58 +160,72 @@ export class GhostSession implements PluginValue {
   }
 
   private async startRequest(requestId: number, cursor: number): Promise<void> {
-    const s = this.deps.settings();
-    const target = await this.deps.target();
-    if (requestId !== this.state.requestId || this.state.phase !== "requesting") return;
-    if (!target) { this.deps.status.noEndpoint(); this.dispatch({ type: "request-failed", requestId }); return; }
-    const info = this.deps.fileInfo(this.view);
-    const ctx = buildContext({ title: info?.title ?? "", docText: this.view.state.doc.toString(), cursor, maxBefore: s.contextChars, maxAfter: AFTER_CHARS });
-    const choice = choosePath(s.requestPath, target.model);
-    const { params, offNotPossible } = completeParams({ family: target.family, backend: target.backend, request: s.request });
-    const ac = new AbortController();
-    this.abort = ac;
+    let ac: AbortController | null = null;
     let timedOut = false;
-    const deadline = this.deps.clock.setTimeout(() => { timedOut = true; ac.abort(); }, REQUEST_DEADLINE_MS);
-    this.deps.status.checking();
-    const res = await this.deps.paths(choice.kind, choice.template).request({
-      ctx, endpoint: target.endpoint, model: target.model, params, signal: ac.signal,
-      onText: (raw) => {
-        if (ac.signal.aborted || requestId !== this.state.requestId) return;
-        this.dispatch({ type: "text", requestId, text: cleanCompletion(raw, ctx.before, ctx.after, false) });
-        this.paint(requestId);
-      },
-    });
-    this.deps.clock.clearTimeout(deadline);
-    if (this.abort === ac) this.abort = null;
-    if (requestId !== this.state.requestId) return;
-    // Abbruch durch Tippen/Escape: Ergebnis verwerfen, kein Fehler. Nur die eigene Frist zählt als Fehler.
-    if (ac.signal.aborted && !timedOut) return;
-    if (timedOut || !res.ok) {
-      const kind = timedOut ? "timeout" : res.ok ? "other" : res.kind;
-      if (kind === "aborted") return;
-      this.deps.health.until = this.deps.clock.now() + ERROR_PAUSE_MS;
-      if (kind === "overflow") this.deps.status.warning(t("status.overflow"));
-      else if (kind === "truncated") this.deps.status.warning(t("status.alwaysThinks"));
-      else {
-        this.deps.invalidateTarget();
-        this.deps.status.error(t("status.unreachable", timedOut ? "timeout" : res.ok ? "" : res.detail));
+    const stale = () => this.destroyed || requestId !== this.state.requestId || this.state.phase === "idle" || this.state.phase === "waiting";
+    try {
+      const s = this.deps.settings();
+      const target = await this.deps.target();
+      if (stale()) return;
+      if (!target) { this.result(); this.deps.status.noEndpoint(); this.dispatch({ type: "request-failed", requestId }); return; }
+      const info = this.deps.fileInfo(this.view);
+      const ctx = buildContext({ title: info?.title ?? "", docText: this.view.state.doc.toString(), cursor, maxBefore: s.contextChars, maxAfter: AFTER_CHARS });
+      const choice = choosePath(s.requestPath, target.model);
+      const { params, offNotPossible } = completeParams({ family: target.family, backend: target.backend, request: s.request });
+      const mine = new AbortController();
+      ac = mine;
+      this.abort = mine;
+      this.clearDeadline();
+      this.deadline = this.deps.clock.setTimeout(() => { timedOut = true; mine.abort(); }, REQUEST_DEADLINE_MS);
+      this.checkingShown = true;
+      this.deps.status.checking();
+      const res = await this.deps.paths(choice.kind, choice.template).request({
+        ctx, endpoint: target.endpoint, model: target.model, params, signal: mine.signal,
+        onText: (raw) => {
+          if (mine.signal.aborted || stale()) return;
+          this.dispatch({ type: "text", requestId, text: cleanCompletion(raw, ctx.before, ctx.after, false) });
+          this.paint(requestId);
+        },
+      });
+      // Abbruch durch Tippen/Escape: Ergebnis verwerfen, kein Fehler, kein Status (Spec 8.3). Nur die eigene Frist zählt als Fehler.
+      if (this.destroyed || (mine.signal.aborted && !timedOut) || requestId !== this.state.requestId) return;
+      if (timedOut || !res.ok) {
+        const kind = timedOut ? "timeout" : res.ok ? "other" : res.kind;
+        if (kind === "aborted") return;
+        this.fail(requestId, kind === "overflow" ? { warn: t("status.overflow") }
+          : kind === "truncated" ? { warn: t("status.truncated") }
+          : { error: kind === "timeout" ? t("status.timeout") : t("status.unreachable", res.ok ? "" : res.detail) });
+        return;
       }
-      this.dispatch({ type: "request-failed", requestId });
-      return;
+      this.deps.onFacts(res.facts, target.family);
+      const text = cleanCompletion(res.raw, ctx.before, ctx.after, true);
+      this.deps.health.empty = res.raw.trim() === "" ? this.deps.health.empty + 1 : 0;
+      const firstMs = res.timing.firstChunkAt !== undefined ? res.timing.firstChunkAt - res.timing.startedAt : undefined;
+      this.result();
+      if (this.deps.health.empty >= EMPTY_WARN_AFTER) this.deps.status.warning(t("status.empty"));
+      else if (offNotPossible) this.deps.status.warning(t("status.alwaysThinks"));
+      else if (choice.warning === "fim-unsupported") this.deps.status.warning(t("status.fimUnsupported"));
+      else this.deps.status.ok(firstMs);
+      this.dispatch({ type: "request-ended", requestId, text });
+      this.paint(requestId);
+    } catch (e) {
+      if (stale() || (ac?.signal.aborted === true && !timedOut)) return;
+      this.fail(requestId, { error: t("status.unreachable", e instanceof Error ? e.message : String(e)) });
+    } finally {
+      if (ac !== null && this.abort === ac) { this.abort = null; this.clearDeadline(); }
     }
-    this.deps.onFacts(res.facts, target.family);
-    const text = cleanCompletion(res.raw, ctx.before, ctx.after, true);
-    this.deps.health.empty = res.raw.trim() === "" ? this.deps.health.empty + 1 : 0;
-    const firstMs = res.timing.firstChunkAt !== undefined ? res.timing.firstChunkAt - res.timing.startedAt : undefined;
-    if (this.deps.health.empty >= EMPTY_WARN_AFTER) this.deps.status.warning(t("status.empty"));
-    else if (offNotPossible) this.deps.status.warning(t("status.alwaysThinks"));
-    else if (choice.warning === "fim-unsupported") this.deps.status.warning(t("status.fimUnsupported"));
-    else this.deps.status.ok(firstMs);
-    this.dispatch({ type: "request-ended", requestId, text });
-    this.paint(requestId);
+  }
+
+  private fail(requestId: number, how: { warn: string } | { error: string }): void {
+    this.deps.health.until = this.deps.clock.now() + ERROR_PAUSE_MS;
+    this.result();
+    if ("warn" in how) this.deps.status.warning(how.warn);
+    else { this.deps.invalidateTarget(); this.deps.status.error(how.error); }
+    this.dispatch({ type: "request-failed", requestId });
   }
 
   private paint(requestId: number): void {
+    if (this.destroyed) return;
     if (requestId !== this.state.requestId) return;
     const text = visible(this.state);
     const head = this.view.state.selection.main.head;

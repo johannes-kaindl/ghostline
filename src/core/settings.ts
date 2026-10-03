@@ -17,6 +17,9 @@ export interface GhostlineSettings {
 
 export const DELAY_MIN = 150, DELAY_MAX = 1000, CONTEXT_MIN = 300, CONTEXT_MAX = 4000;
 export const AFTER_CHARS = 200, MAX_TOKENS = 40, ERROR_PAUSE_MS = 10_000, EMPTY_WARN_AFTER = 3;
+/** Gesamtfrist je Anfrage. Der FIM-Client kennt weder Leerlauf- noch Erstes-Chunk-Frist; ein
+ *  stummer Server würde die Session sonst ewig im Zustand „requesting“ halten. */
+export const REQUEST_DEADLINE_MS = 20_000;
 
 export const DEFAULT_SETTINGS: GhostlineSettings = {
   enabled: true,
