@@ -11,7 +11,15 @@ const REDACTIONS: [RegExp, string][] = [
 ];
 
 export function removeQueryBlocks(text: string): string { return text.replace(QUERY_BLOCK, ""); }
-export function redact(text: string): string { return REDACTIONS.reduce((t, [re, rep]) => t.replace(re, rep), text); }
+const ORPHAN_END = /^[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/;
+const ORPHAN_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*$/;
+
+/** Nach der Paarregel auch verwaiste Hälften schwärzen: an Ausschnittsrändern kann BEGIN oder END fehlen. */
+export function redact(text: string): string {
+  return REDACTIONS.reduce((t, [re, rep]) => t.replace(re, rep), text)
+    .replace(ORPHAN_END, "[redacted-private-key]")
+    .replace(ORPHAN_BEGIN, "[redacted-private-key]");
+}
 
 /** Anfang des Fensters über `text`: die früheste Absatzgrenze, ab der höchstens `max` Zeichen
  *  bleiben. Springt dadurch absatzweise — der Prompt-Anfang bleibt zwischen zwei Anfragen
@@ -39,11 +47,11 @@ function frontmatterEnd(doc: string): number {
 const MARGIN = 512;
 
 /** Schwärzen VOR dem Fensterschnitt, damit der Schnitt kein Geheimnis-Fragment freilegt.
- *  Die Arbeit ist begrenzt (Vorlauf maxBefore*3 + Rand, Nachlauf maxAfter + Rand); Trade-off:
+ *  Die Arbeit ist begrenzt (Vorlauf max(maxBefore*3, 16384) + Rand, Nachlauf maxAfter + Rand); Trade-off:
  *  ein Schlüsselblock, dessen BEGIN-Zeile vor dem Vorlauf liegt, ist nicht erkennbar. */
 export function buildContext(i: ContextInput): CompletionContext {
   const fm = frontmatterEnd(i.docText);
-  const from = Math.max(Math.min(fm, i.cursor), i.cursor - (i.maxBefore * 3 + MARGIN));
+  const from = Math.max(Math.min(fm, i.cursor), i.cursor - (Math.max(i.maxBefore * 3, 16384) + MARGIN));
   const rawBefore = redact(removeQueryBlocks(i.docText.slice(from, i.cursor)));
   const before = rawBefore.slice(windowStart(rawBefore, i.maxBefore));
   const after = redact(removeQueryBlocks(i.docText.slice(i.cursor, i.cursor + i.maxAfter + MARGIN))).slice(0, i.maxAfter);

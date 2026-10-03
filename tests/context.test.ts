@@ -82,4 +82,22 @@ describe("buildContext", () => {
     expect(c.before.length).toBeLessThanOrEqual(1500);
     expect(c.before.endsWith("MITTE ")).toBe(true);
   });
+  it("Key länger als der Vorlauf, END am Cursor: kein Schlüsseltext in before", () => {
+    const body = ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n").repeat(600);
+    const doc = "Davor.\n\n-----BEGIN RSA PRIVATE KEY-----\n" + body + "-----END RSA PRIVATE KEY-----\nRest ";
+    const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 300, maxAfter: 10 });
+    expect(c.before).not.toContain("QUJDRE");
+    expect(c.before).not.toContain("PRIVATE KEY");
+  });
+  it("Key, dessen END hinter maxAfter+Rand liegt: kein Schlüsseltext in after", () => {
+    const body = ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n").repeat(600);
+    const doc = "Vorne \n-----BEGIN RSA PRIVATE KEY-----\n" + body + "-----END RSA PRIVATE KEY-----\n";
+    const c = buildContext({ title: "t", docText: doc, cursor: 6, maxBefore: 300, maxAfter: 200 });
+    expect(c.after).not.toContain("QUJDRE");
+    expect(c.after).not.toContain("PRIVATE KEY");
+  });
+  it("redact: verwaiste END- und BEGIN-Hälften", () => {
+    expect(redact("body\nmore\n-----END RSA PRIVATE KEY-----\nText")).toBe("[redacted-private-key]\nText");
+    expect(redact("Text\n-----BEGIN PRIVATE KEY-----\nbody")).toBe("Text\n[redacted-private-key]");
+  });
 });
