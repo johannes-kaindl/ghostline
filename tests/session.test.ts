@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
-import { ghostField } from "../src/editor/ghost-field";
+import { ghostField, setGhost } from "../src/editor/ghost-field";
 import { ghostViewPlugin, sessionOf, type SessionDeps, type StatusSink } from "../src/obsidian/session";
 import type { CompletionPath, PathRequest, PathResult } from "../src/llm/paths";
 import { DEFAULT_SETTINGS, REQUEST_DEADLINE_MS } from "../src/core/settings";
@@ -289,4 +289,55 @@ describe("GhostSession", () => {
     u.clock.advance(REQUEST_DEADLINE_MS); await flush();
     expect(u.statusLog).toContain("error:Request timed out");
   });
+
+  /** Steuerbarer Streaming-Pfad: `push` liefert einen Rohtext-Stand, `finish` beendet die Anfrage. */
+  function streaming(t: ReturnType<typeof setup>) {
+    const ctl = { req: null as PathRequest | null, finish: (_raw: string) => {} };
+    t.deps.paths = () => ({ kind: "chat", request: (r) => new Promise<PathResult>((res) => {
+      ctl.req = r;
+      ctl.finish = (raw) => { r.onText(raw); res({ ok: true, raw, timing: { startedAt: 0, firstChunkAt: 5, endedAt: 9 }, facts: { status: 200, content: raw } }); };
+    }) });
+    return ctl;
+  }
+  it("wiederholter Satzanfang beim Streaming: nie ein Ghost mit Wiederholung, Tab fügt nichts doppelt ein (Final-Review I1)", async () => {
+    const t = setup(async () => "x");
+    const s = streaming(t);
+    t.type("Ich gehe heute "); t.clock.advance(300); await flush();
+    expect(s.req).not.toBeNull();
+    const doc0 = t.view.state.doc.toString();
+    for (const chunk of ["Ich ", "Ich gehe ", "Ich gehe heute "]) {
+      s.req!.onText(chunk);
+      const g = t.view.state.field(ghostField);
+      expect(g === null || !/Ich|gehe|heute/.test(g.text), `Ghost nach ${JSON.stringify(chunk)}: ${JSON.stringify(g)}`).toBe(true);
+      expect(sessionOf(t.view)!.accept("all")).toBe(false);
+      expect(t.view.state.doc.toString()).toBe(doc0);
+    }
+    s.req!.onText("Ich gehe heute in den ");
+    expect(t.view.state.field(ghostField)).toEqual({ pos: 15, text: "in den" });
+    s.finish("Ich gehe heute in den Park"); await flush();
+    expect(t.view.state.field(ghostField)).toEqual({ pos: 15, text: "in den Park" });
+    expect(sessionOf(t.view)!.accept("all")).toBe(true);
+    expect(t.view.state.doc.toString()).toBe("Ich gehe heute in den Park");
+  });
+  it("schrumpft der Streamtext unter das Durchgetippte, verschwindet der Ghost, Tab fügt nichts Veraltetes ein (Final-Review I1a/b/d)", async () => {
+    const t = setup(async () => "x");
+    const s = streaming(t);
+    t.type("Ich gehe heute "); t.clock.advance(300); await flush();
+    s.req!.onText("in den ");
+    expect(t.view.state.field(ghostField)).toEqual({ pos: 15, text: "in den" });
+    t.type("in");
+    expect(t.view.state.field(ghostField)).toEqual({ pos: 17, text: " den" });
+    s.req!.onText("Ich gehe heute ");
+    expect(t.view.state.field(ghostField)).toBeNull();
+    expect(sessionOf(t.view)!.accept("all")).toBe(false);
+    expect(t.view.state.doc.toString()).toBe("Ich gehe heute in");
+  });
+  it("Übernahme nimmt den Text aus dem Zustand, nicht aus einem abweichenden Feld (Final-Review I1d)", async () => {
+    const t = setup(async () => "in den Park");
+    t.type("Ich gehe "); t.clock.advance(300); await flush();
+    t.view.dispatch({ effects: setGhost.of({ pos: 9, text: "VERALTET" }) });
+    expect(sessionOf(t.view)!.accept("all")).toBe(true);
+    expect(t.view.state.doc.toString()).toBe("Ich gehe in den Park");
+  });
 });
+

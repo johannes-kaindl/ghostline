@@ -68,8 +68,10 @@ export class GhostSession implements PluginValue {
   }
 
   accept(mode: "all" | "word"): boolean {
-    const spec = acceptSpec(this.view.state, mode);
-    if (!spec) return false;
+    // Eingefügt wird, was der Zustand als sichtbar führt — nie ein davon abweichender Feldtext (Final-Review I1).
+    const text = visible(this.state);
+    const spec = text === "" ? null : acceptSpec(this.view.state, mode, { pos: this.state.anchor, text });
+    if (!spec) { this.clearStaleGhost(); return false; }
     this.dispatch({ type: "accept", mode }, false);
     this.view.dispatch(spec);
     return true;
@@ -224,12 +226,18 @@ export class GhostSession implements PluginValue {
     this.dispatch({ type: "request-failed", requestId });
   }
 
+  /** Räumt einen Ghost, den der Zustand nicht mehr führt. Nur außerhalb von `update` aufrufen. */
+  private clearStaleGhost(): void {
+    if (this.view.state.field(ghostField, false) !== null) this.view.dispatch({ effects: setGhost.of(null) });
+  }
+
   private paint(requestId: number): void {
     if (this.destroyed) return;
     if (requestId !== this.state.requestId) return;
     const text = visible(this.state);
     const head = this.view.state.selection.main.head;
-    if (text === "" || head !== this.state.anchor) return;
+    if (text === "") { this.clearStaleGhost(); return; }
+    if (head !== this.state.anchor) return;
     this.view.dispatch({ effects: setGhost.of({ pos: this.state.anchor, text }) });
   }
 }

@@ -2,11 +2,12 @@ import { Prec, type EditorState, type Extension, type TransactionSpec } from "@c
 import { keymap, type EditorView } from "@codemirror/view";
 import { nextWordLength } from "../core/suggestion";
 import type { TabAction } from "../core/settings";
-import { ghostField, ghostOwn, setGhost } from "./ghost-field";
+import { ghostField, ghostOwn, setGhost, type Ghost } from "./ghost-field";
 
-export function acceptSpec(state: EditorState, mode: "all" | "word"): TransactionSpec | null {
-  const g = state.field(ghostField, false);
-  if (!g) return null;
+/** `ghost` überschreibt das Feld: die Session übergibt, was ihr Zustand zeigt (eine Quelle der Wahrheit). */
+export function acceptSpec(state: EditorState, mode: "all" | "word", ghost?: Ghost | null): TransactionSpec | null {
+  const g = ghost === undefined ? state.field(ghostField, false) : ghost;
+  if (!g || g.text === "") return null;
   const text = mode === "all" ? g.text : g.text.slice(0, nextWordLength(g.text));
   const rest = g.text.slice(text.length);
   const end = g.pos + text.length;

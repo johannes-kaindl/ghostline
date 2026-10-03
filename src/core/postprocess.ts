@@ -20,11 +20,28 @@ function boundaryAfter(s: string, len: number): boolean {
   return next === "" || !WORDCH.test(next);
 }
 
+/** Wortanfänge in `before`, an denen ein Ende (tail) beginnen darf. */
+function tailStarts(before: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < before.length; i++) {
+    if (before.charAt(i) === " " || (i > 0 && !/\s/.test(before.charAt(i - 1)))) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+/** Streaming: Ist die bisherige Antwort noch der Anfang eines Endes von `before`, kann sie sich
+ *  als wiederholter Satzanfang herausstellen — bis dahin nichts zeigen (Final-Review I1). */
+function mayBecomeOverlap(before: string, completion: string): boolean {
+  const c = completion.trimStart();
+  if (c === "") return false;
+  return tailStarts(before).some((i) => before.slice(i).startsWith(c));
+}
+
 /** Längstes Ende von `before`, das an einer Wortgrenze beginnt und mit dem die Antwort anfängt. */
 function removePrefixOverlap(before: string, completion: string): string {
   const c = completion.trimStart();
-  for (let i = 0; i < before.length; i++) {
-    if (before.charAt(i) === " " || (i > 0 && !/\s/.test(before.charAt(i - 1)))) continue;
+  for (const i of tailStarts(before)) {
     const tail = before.slice(i).trimEnd();
     if (tail.length > 0 && c.startsWith(tail) && boundaryAfter(c, tail.length)) return c.slice(tail.length);
   }
@@ -57,6 +74,7 @@ export function cleanCompletion(raw: string, before: string, after: string, fina
   if (t.search(/\r?\n/) === 0) t = t.replace(/^\r?\n+/, "");
   const nl = t.search(/\r?\n/);
   if (nl >= 0) t = t.slice(0, nl);
+  if (!final && mayBecomeOverlap(before, t)) return "";
   t = removePrefixOverlap(before, t);
   t = removeSuffixOverlap(t, after);
   t = seam(before, t);

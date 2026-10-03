@@ -56,7 +56,9 @@ export function step(s: SuggestionState, e: SuggestionEvent): { state: Suggestio
     case "trigger-rejected": return { state: s.phase === "waiting" ? toIdle(s) : s, effects: [] };
     case "text": {
       if (e.requestId !== s.requestId || !(s.phase === "requesting" || s.phase === "showing")) return { state: s, effects: [] };
-      const phase: Phase = e.text.length > s.consumed ? "showing" : s.phase;
+      // Schrumpft der Streamtext auf das Durchgetippte oder darunter, ist nichts mehr zu zeigen:
+      // zurück auf „requesting“, sonst bliebe ein veralteter Ghost stehen (Final-Review I1).
+      const phase: Phase = e.text.length > s.consumed ? "showing" : "requesting";
       return { state: { ...s, phase, full: e.text }, effects: [] };
     }
     case "request-ended": {

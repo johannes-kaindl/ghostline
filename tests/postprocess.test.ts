@@ -55,4 +55,17 @@ describe("cleanCompletion", () => {
     expect(cleanCompletion("in", "Ich gehe ", "", false)).toBe("");
   });
   it("leer bleibt leer", () => { expect(fin("   ")).toBe(""); });
+  it("Streaming: ein Satzanfang, der noch Wiederholung werden kann, bleibt unsichtbar (Final-Review I1c)", () => {
+    const before = "Ich gehe heute ";
+    expect(cleanCompletion("Ich ", before, "", false)).toBe("");
+    expect(cleanCompletion("Ich gehe ", before, "", false)).toBe("");
+    expect(cleanCompletion("Ic", before, "", false)).toBe("");
+    expect(cleanCompletion("heu", before, "", false)).toBe("");
+    expect(cleanCompletion("Ich gehe heute in den ", before, "", false)).toBe("in den");
+    // Kein Präfix eines Endes von before: normal sichtbar
+    expect(cleanCompletion("Ich will ", before, "", false)).toBe("Ich will");
+    // Final bleibt unverändert (der Endtext entscheidet selbst)
+    expect(cleanCompletion("Ich ", before, "", true)).toBe("Ich");
+  });
 });
+

@@ -113,4 +113,15 @@ describe("Hilfsfunktionen", () => {
     expect(step(s, { type: "accept", mode: "all" })).toEqual({ state: s, effects: [] });
     expect(step(s, { type: "accept", mode: "word" })).toEqual({ state: s, effects: [] });
   });
+  it("schrumpfender Streamtext (<= consumed) geht zurück auf requesting, kein Ghost (Final-Review I1b)", () => {
+    const r = step(showing("in den", 10, 2, true), { type: "text", requestId: 1, text: "" });
+    expect(r.state.phase).toBe("requesting");
+    expect(visible(r.state)).toBe("");
+    const r2 = step(showing("in den", 10, 0, true), { type: "text", requestId: 1, text: "" });
+    expect(r2.state.phase).toBe("requesting");
+    const r3 = step(r.state, { type: "text", requestId: 1, text: "in den Park" });
+    expect(r3.state.phase).toBe("showing");
+    expect(visible(r3.state)).toBe(" den Park");
+  });
 });
+
