@@ -20,4 +20,11 @@ describe("statusView", () => {
     expect(v.label).toContain("280");
     expect(statusView({ enabled: true, kind: "error", reason: "refused" }).label).toContain("refused");
   });
+  it("eigene Aktion (noEndpoint): Hinweis genau einmal, kein Umschalt-Hinweis, kein aria-pressed", () => {
+    const v = statusView({ enabled: true, kind: "warning", reason: "No endpoint selected — click to open settings", ownAction: true });
+    expect(v.label.match(/open settings/g)).toHaveLength(1);
+    expect(v.label).not.toContain("turn off");
+    expect(v.isToggle).toBe(false);
+    expect(statusView({ enabled: true, kind: "ok" }).isToggle).toBe(true);
+  });
 });
