@@ -28,7 +28,7 @@ While you write, Ghostline waits for a short pause, asks a local model how the c
 - **Tab** accepts the whole suggestion; in the settings you can change it to "next word" or unbind it. Without a visible suggestion Tab does what it always does (indent a list, for example).
 - **Right arrow** accepts the next word while a suggestion is visible.
 - **Escape** dismisses the suggestion. With Vim mode on, Escape is left to Vim.
-- **Commands** (assign hotkeys under Settings → Hotkeys, none are set by default): Accept suggestion, Accept next word, Dismiss suggestion, Suggest now, Turn Ghostline on or off. Read the [note on hotkeys](docs/explanation/privacy.md#hotkeys-on-the-accept-commands) before binding the accept commands.
+- **Commands** (assign hotkeys under Settings → Hotkeys, none are set by default): Accept suggestion, Accept next word, Dismiss suggestion, Suggest now, Turn suggestions on or off. Read the [note on hotkeys](docs/explanation/privacy.md#hotkeys-on-the-accept-commands) before binding the accept commands.
 - **Status bar:** shows "Ghostline: on" or "off", the time to the first word of the last suggestion, and errors (endpoint not reachable, timeout, model that always thinks). A click switches Ghostline on or off.
 - **Request path:** "Automatic" uses fill-in-the-middle (FIM) for models whose family has a known template (currently Qwen2.5-Coder) and chat for everything else.
 - **Excluding notes:** by pattern in the settings or with `ghostline: false` in a note's properties, see [Exclude notes](docs/how-to/exclude-notes.md).
