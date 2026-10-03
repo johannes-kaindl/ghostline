@@ -210,7 +210,7 @@ export class GhostSession implements PluginValue {
       this.paint(requestId);
     } catch (e) {
       if (stale() || (ac?.signal.aborted === true && !timedOut)) return;
-      this.fail(requestId, { error: t("status.unreachable", e instanceof Error ? e.message : String(e)) });
+      this.fail(requestId, { error: timedOut ? t("status.timeout") : t("status.unreachable", e instanceof Error ? e.message : String(e)) });
     } finally {
       if (ac !== null && this.abort === ac) { this.abort = null; this.clearDeadline(); }
     }

@@ -256,11 +256,19 @@ describe("GhostSession", () => {
     expect(t.facts.length).toBe(1);
   });
   it("Frist läuft nach Nutzerabbruch nicht mehr als Timeout-Fehler ab", async () => {
-    const t = setup((r) => new Promise((res) => { r.signal.addEventListener("abort", () => setTimeout(() => res({ kind: "aborted" }), 5)); }));
+    const resolvers: ((a: Answer) => void)[] = [];
+    const t = setup(() => new Promise((res) => { resolvers.push(res); }));
     t.type("Ich gehe "); t.clock.advance(300); await flush();
-    t.type("ha");
-    t.clock.advance(REQUEST_DEADLINE_MS); await flush(); await flush();
+    t.type("ha"); // Nutzerabbruch, Pfad antwortet noch nicht
+    t.clock.advance(REQUEST_DEADLINE_MS); // die Frist wäre jetzt fällig
+    resolvers[0]!({ kind: "aborted" }); await flush(); // Pfad antwortet erst NACH Fristablauf
     expect(t.statusLog.some((s) => s.startsWith("error:"))).toBe(false);
+  });
+  it("Pfad wirft AbortError nach eigener Frist: Timeout-Text statt unreachable", async () => {
+    const t = setup((r) => new Promise((_res, rej) => { r.signal.addEventListener("abort", () => rej(new Error("AbortError"))); }));
+    t.type("Ich gehe "); t.clock.advance(300); await flush();
+    t.clock.advance(REQUEST_DEADLINE_MS); await flush();
+    expect(t.statusLog).toContain("error:Request timed out");
   });
   it("Übernehmen Wort für Wort: Rest bleibt, keine Abbruch- oder Neuanfrage", async () => {
     const t = setup(async () => "in den Park");
