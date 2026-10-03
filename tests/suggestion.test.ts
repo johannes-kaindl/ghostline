@@ -103,4 +103,14 @@ describe("Hilfsfunktionen", () => {
     expect(typeThrough("ab", 5, 5, 5, "abc")).toBeNull();
     expect(typeThrough("ab", 5, 5, 5, "")).toBeNull();
   });
+  it("request-failed im waiting (nach Abbruch durch Edit) bleibt wirkungslos", () => {
+    const s = { ...INITIAL, phase: "waiting" as const, requestId: 1 };
+    expect(step(s, { type: "request-failed", requestId: 1 })).toEqual({ state: s, effects: [] });
+  });
+  it("accept mit leerem sichtbaren Rest ist ein No-op", () => {
+    const s = showing("ab", 10, 2, true);
+    expect(visible(s)).toBe("");
+    expect(step(s, { type: "accept", mode: "all" })).toEqual({ state: s, effects: [] });
+    expect(step(s, { type: "accept", mode: "word" })).toEqual({ state: s, effects: [] });
+  });
 });

@@ -65,12 +65,13 @@ export function step(s: SuggestionState, e: SuggestionEvent): { state: Suggestio
       return { state: { ...s, phase: "showing", full: e.text, streaming: false }, effects: [] };
     }
     case "request-failed": {
-      if (e.requestId !== s.requestId) return { state: s, effects: [] };
+      if (e.requestId !== s.requestId || !(s.phase === "requesting" || s.phase === "showing")) return { state: s, effects: [] };
       return { state: toIdle(s), effects: [] };
     }
     case "accept": {
       if (s.phase !== "showing") return { state: s, effects: [] };
       const text = visible(s);
+      if (text === "") return { state: s, effects: [] };
       if (e.mode === "all") {
         const effects: Effect[] = s.streaming ? [{ kind: "abort-request" }] : [];
         effects.push({ kind: "insert", at: s.anchor, text }, { kind: "start-timer" });
