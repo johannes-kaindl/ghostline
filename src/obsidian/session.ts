@@ -140,6 +140,15 @@ export class GhostSession implements PluginValue {
     }
   }
 
+  /** Zwei Bereiche auf derselben Notiz: nur der Bereich mit dem Eingabefokus fragt automatisch an
+   *  (Final-Review M2). Bewusst ohne `document.hasFocus()` (anders als `view.hasFocus`): ein
+   *  Obsidian-Fenster im Hintergrund behält seinen aktiven Bereich, und die Frage ist hier
+   *  „welcher Bereich“, nicht „welches Fenster“ — ein Fensterwechsel räumt ohnehin über `focusChanged`. */
+  private paneFocused(): boolean {
+    const active = this.view.root.activeElement;
+    return active !== null && this.view.contentDOM.contains(active);
+  }
+
   private cancelTimer(): void { if (this.timer !== null) { this.deps.clock.clearTimeout(this.timer); this.timer = null; } }
 
   private onTimer(): void {
@@ -159,7 +168,8 @@ export class GhostSession implements PluginValue {
       lineText: line.text, ch: head - line.from, blockKind: blockKindAt(lines, line.number - 1, head - line.from),
       vimAllows: this.deps.vimAllows(this.view), manual,
     });
-    if (this.view.composing || !verdict.fire || (!manual && this.deps.clock.now() < this.deps.health.until)) { this.dispatch({ type: "trigger-rejected" }); return; }
+    const auto = !manual;
+    if (this.view.composing || !verdict.fire || (auto && (!this.paneFocused() || this.deps.clock.now() < this.deps.health.until))) { this.dispatch({ type: "trigger-rejected" }); return; }
     this.dispatch({ type: "timer-fired", cursor: head });
   }
 

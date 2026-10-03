@@ -47,6 +47,8 @@ function setup(answer: (r: PathRequest) => Promise<Answer>) {
   const facts: unknown[] = [];
   deps.onFacts = (f) => { facts.push(f); };
   const view = new EditorView({ state: EditorState.create({ doc: "", extensions: [ghostField, ghostViewPlugin(deps)] }), parent: document.body });
+  // Automatische Anfragen nur im fokussierten Bereich (Final-Review M2): jsdom kann das echte contentDOM fokussieren.
+  view.focus();
   const type = (s: string) => view.dispatch({ changes: { from: view.state.doc.length, insert: s }, selection: { anchor: view.state.doc.length + s.length }, userEvent: "input.type" });
   return { clock, view, calls, statusLog, type, deps, facts };
 }
@@ -184,6 +186,7 @@ describe("GhostSession", () => {
     const t = setup((r) => new Promise((res) => { r.signal.addEventListener("abort", () => res({ kind: "aborted" })); }));
     t.type("Ich gehe "); t.clock.advance(300); await flush();
     const signal = t.calls[0]!.signal;
+    t.view.contentDOM.blur();
     sessionOf(t.view)!.update({ transactions: [], docChanged: false, selectionSet: false, focusChanged: true } as unknown as ViewUpdate);
     await flush();
     expect(t.view.hasFocus).toBe(false);
@@ -194,6 +197,7 @@ describe("GhostSession", () => {
     const t = setup(async () => "in den Park");
     t.type("Ich gehe "); t.clock.advance(300); await flush();
     expect(t.view.state.field(ghostField)).not.toBeNull();
+    t.view.contentDOM.blur();
     sessionOf(t.view)!.update({ transactions: [], docChanged: false, selectionSet: false, focusChanged: true } as unknown as ViewUpdate);
     await flush();
     expect(t.view.state.field(ghostField)).toBeNull();
@@ -357,6 +361,19 @@ describe("GhostSession", () => {
     t.type("Ich gehe "); t.clock.advance(300); await flush();
     expect(t.statusLog.indexOf("facts")).toBeGreaterThan(t.statusLog.indexOf("ok"));
     expect(t.statusLog[t.statusLog.length - 1]).toBe("facts");
+  });
+  it("nicht fokussierter Bereich fragt nicht automatisch an, „Jetzt vorschlagen“ schon (Final-Review M2)", async () => {
+    const b = setup(async () => "in den Park");
+    const sb = sessionOf(b.view)!; // sessionOf kennt nur das zuletzt registrierte Plugin
+    const a = setup(async () => "in den Park"); // a.focus() nimmt b den Fokus
+    expect(b.view.hasFocus).toBe(false);
+    for (const x of [a, b]) { x.type("Ich gehe "); x.clock.advance(300); }
+    await flush();
+    expect(a.calls.length).toBe(1);
+    expect(b.calls.length).toBe(0);
+    expect(b.statusLog).toEqual([]);
+    sb.requestNow(); await flush();
+    expect(b.calls.length).toBe(1);
   });
 });
 
