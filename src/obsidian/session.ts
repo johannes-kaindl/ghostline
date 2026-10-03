@@ -13,7 +13,7 @@ import { shouldTrigger } from "../core/trigger";
 import type { FimTemplate } from "../core/fim-templates";
 import { ghostField, ghostOwn, setGhost } from "../editor/ghost-field";
 import { acceptSpec } from "../editor/ghost-keymap";
-import { completeParams, type CompletionPath } from "../llm/paths";
+import { STOP, completeParams, type CompletionPath } from "../llm/paths";
 
 export interface Target { endpoint: EndpointConfig; model: string; family: FamilyId | null; backend: BackendId }
 export interface StatusSink { checking(): void; ok(lastFirstWordMs?: number): void; error(reason: string): void; warning(reason: string): void; noEndpoint(): void;
@@ -30,6 +30,8 @@ export interface SessionDeps {
   vimAllows(view: EditorView): boolean;
   status: StatusSink;
   onFacts(facts: ResponseFacts, family: FamilyId | null): void;
+  /** Gesendete Parameter für „Letzte Anfrage“ — nur Parameter, nie Notiztext. */
+  onRequest(params: Record<string, unknown>): void;
   health: { until: number; empty: number };
 }
 
@@ -174,6 +176,8 @@ export class GhostSession implements PluginValue {
       const ctx = buildContext({ title: info?.title ?? "", docText: this.view.state.doc.toString(), cursor, maxBefore: s.contextChars, maxAfter: AFTER_CHARS });
       const choice = choosePath(s.requestPath, target.model);
       const { params, offNotPossible } = completeParams({ family: target.family, backend: target.backend, request: s.request });
+      const stop = choice.kind === "fim" && choice.template ? [...STOP, ...choice.template.stop] : [...STOP];
+      this.deps.onRequest({ ...params, stop });
       const mine = new AbortController();
       ac = mine;
       this.abort = mine;
@@ -199,7 +203,6 @@ export class GhostSession implements PluginValue {
           : { error: kind === "timeout" ? t("status.timeout") : t("status.unreachable", res.ok ? "" : res.detail) });
         return;
       }
-      this.deps.onFacts(res.facts, target.family);
       const text = cleanCompletion(res.raw, ctx.before, ctx.after, true);
       this.deps.health.empty = res.raw.trim() === "" ? this.deps.health.empty + 1 : 0;
       const firstMs = res.timing.firstChunkAt !== undefined ? res.timing.firstChunkAt - res.timing.startedAt : undefined;
@@ -208,6 +211,8 @@ export class GhostSession implements PluginValue {
       else if (offNotPossible) this.deps.status.warning(t("status.alwaysThinks"));
       else if (choice.warning === "fim-unsupported") this.deps.status.warning(t("status.fimUnsupported"));
       else this.deps.status.ok(firstMs);
+      // Nach dem Status: eine Abweichungs-Warnung (einmal je Art) soll nicht sofort von „ok“ überschrieben werden (Final-Review M1).
+      this.deps.onFacts(res.facts, target.family);
       this.dispatch({ type: "request-ended", requestId, text });
       this.paint(requestId);
     } catch (e) {

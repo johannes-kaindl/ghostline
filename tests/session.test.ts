@@ -42,7 +42,7 @@ function setup(answer: (r: PathRequest) => Promise<Answer>) {
     target: async () => ({ endpoint: { url: "http://h" }, model: "m", family: null, backend: "lmstudio" }),
     invalidateTarget: () => {}, paths: () => path,
     fileInfo: () => ({ path: "Notiz.md", title: "Notiz" }), isExcluded: () => false,
-    vimAllows: () => true, status, onFacts: () => {}, health: { until: 0, empty: 0 },
+    vimAllows: () => true, status, onFacts: () => {}, onRequest: () => {}, health: { until: 0, empty: 0 },
   };
   const facts: unknown[] = [];
   deps.onFacts = (f) => { facts.push(f); };
@@ -338,6 +338,25 @@ describe("GhostSession", () => {
     t.view.dispatch({ effects: setGhost.of({ pos: 9, text: "VERALTET" }) });
     expect(sessionOf(t.view)!.accept("all")).toBe(true);
     expect(t.view.state.doc.toString()).toBe("Ich gehe in den Park");
+  });
+  it("meldet je Anfrage die Parameter samt Stop-Liste, nie Notiztext (Final-Review I2)", async () => {
+    const t = setup(async () => "in den Park");
+    const reqs: Record<string, unknown>[] = [];
+    t.deps.onRequest = (p) => { reqs.push(p); };
+    t.type("Ich gehe "); t.clock.advance(300); await flush();
+    expect(reqs.length).toBe(1);
+    expect(reqs[0]!.stop).toEqual(["\n"]);
+    expect(JSON.stringify(reqs[0])).not.toContain("Ich gehe");
+    expect(Object.keys(reqs[0]!).some((k) => /prompt|messages/.test(k))).toBe(false);
+    t.type("und "); t.clock.advance(300); await flush();
+    expect(reqs.length).toBe(2);
+  });
+  it("Abweichungen werden nach dem Status ausgewertet, damit ihre Warnung stehen bleibt (Final-Review M1)", async () => {
+    const t = setup(async () => "in den Park");
+    t.deps.onFacts = () => { t.statusLog.push("facts"); };
+    t.type("Ich gehe "); t.clock.advance(300); await flush();
+    expect(t.statusLog.indexOf("facts")).toBeGreaterThan(t.statusLog.indexOf("ok"));
+    expect(t.statusLog[t.statusLog.length - 1]).toBe("facts");
   });
 });
 

@@ -92,6 +92,8 @@ export default class GhostlinePlugin extends Plugin {
       onFacts: (facts, family: FamilyId | null) => {
         this.requestSession.report(checkResponse({ family, thinking: this.settings.request.thinking.complete ?? "off" }, facts));
       },
+      // Nur Parameter (Sampling-Felder und Stop-Liste), nie Notiztext oder Prompt.
+      onRequest: (params) => { this.requestSession.recordRequest(params); },
       health: { until: 0, empty: 0 },
     };
 
