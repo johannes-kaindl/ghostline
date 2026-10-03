@@ -29,12 +29,19 @@ export class GhostlineSettingTab extends PluginSettingTab {
 
   constructor(app: App, private readonly plugin: GhostlinePlugin) {
     super(app, plugin);
-    // Ab Obsidian 1.13 zeichnet renderTab() bei gleicher Zeilenzahl nicht neu; ohne den Hook
-    // blieben „kein Manager“-Hinweis und „Letzte Anfrage“ veraltet.
+    this.installRefresh();
+  }
+
+  /** Ab Obsidian 1.13 zeichnet renderTab() bei gleicher Zeilenzahl nicht neu; ohne den Hook
+   *  blieben „kein Manager“-Hinweis und „Letzte Anfrage“ veraltet. Idempotent: entfernt erst den
+   *  vorigen Hook. `hide()` entfernt ihn NICHT — ab 1.13 ruft das Öffnen `renderTab()` und nicht
+   *  `display()`; ein in `hide()` entfernter Hook käme beim zweiten Öffnen nie zurück (Final-Review M3). */
+  private installRefresh(): void {
+    this.uninstallRefresh();
     this.uninstallRefresh = installTabRefreshOnOpen(this, () => this.renderImperative());
   }
 
-  hide(): void { this.patternSave.flush(); this.uninstallRefresh(); }
+  hide(): void { this.patternSave.flush(); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     const groups: GroupDef[] = [
@@ -160,7 +167,7 @@ export class GhostlineSettingTab extends PluginSettingTab {
     });
   }
 
-  display(): void { this.renderImperative(); }
+  display(): void { this.installRefresh(); this.renderImperative(); }
   private refreshUi(): void { refreshSettingsTab(this, () => this.renderImperative()); }
   private renderImperative(): void {
     this.patternSave.flush();
