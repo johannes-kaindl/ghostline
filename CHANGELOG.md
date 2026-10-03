@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The README now shows screenshots of ghost-text suggestions (continuing a sentence, a list item, the next word) and of the settings.
+- The troubleshooting guide ends with a “Getting help” section that links to the issue tracker.
+
 ## [0.1.0] — 2026-10-03
 
 ### Added
