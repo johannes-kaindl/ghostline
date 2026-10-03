@@ -1,0 +1,1 @@
+{ "enabled": true, "tabAction": "accept-all", "requestPath": "auto", "delayMs": 300, "contextChars": 1500, "excludePatterns": "Clippings/\n", "choice": { "endpointId": "smoke" } }
