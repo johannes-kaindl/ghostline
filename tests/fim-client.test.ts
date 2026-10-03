@@ -61,4 +61,35 @@ describe("createFimClient", () => {
     expect(r).toMatchObject({ ok: true, text: "ok" });
     expect((seen.body as { stream: boolean }).stream).toBe(false);
   });
+  it("200 mit JSON-Completion statt SSE → Erfolg", async () => {
+    const c = createFimClient({ transport: fakeTransport(['{"choices":[{"text":"plain","finish_reason":"stop"}]}']) });
+    const got: string[] = [];
+    const r = await c.complete(req({ onText: (t) => got.push(t) }));
+    expect(r).toMatchObject({ ok: true, text: "plain", finishReason: "stop" });
+    expect(got).toEqual(["plain"]);
+  });
+  it("200 mit Fehlerkörper → http mit Servermeldung", async () => {
+    const c = createFimClient({ transport: fakeTransport(['{"error":{"message":"no model"}}']) });
+    const r = await c.complete(req());
+    expect(r).toMatchObject({ ok: false, kind: "http", status: 200 });
+    if (!r.ok) expect(r.detail).toContain("no model");
+  });
+  it("letzte data-Zeile ohne Zeilenende geht nicht verloren", async () => {
+    const c = createFimClient({ transport: fakeTransport(['data: {"choices":[{"text":"a"}]}\n', 'data: {"choices":[{"text":"b","finish_reason":"length"}]}']) });
+    expect(await c.complete(req())).toMatchObject({ ok: true, text: "ab", finishReason: "length" });
+  });
+  it("leerer Fehlerkörper ergibt kein 'HTTP 400: '", async () => {
+    const r = await createFimClient({ transport: fakeTransport([], 400) }).complete(req());
+    expect(r).toMatchObject({ ok: false, kind: "http", status: 400 });
+    if (!r.ok) { expect(r.detail).toContain("HTTP 400"); expect(r.detail).not.toMatch(/: $/); }
+  });
+  it("leeres error-Feld fällt auf message durch", async () => {
+    const r = await createFimClient({ transport: fakeTransport(['{"error":"","message":"x"}'], 400) }).complete(req());
+    if (!r.ok) expect(r.detail).toContain("x"); else throw new Error("expected failure");
+  });
+  it("kaputter Fallback-Körper ist nicht network", async () => {
+    const t: SseTransport = { async postStream() { const e = new Error("net"); e.name = "StreamNetworkError"; throw e; } };
+    const r = await createFimClient({ transport: t, fallbackTransport: fakeTransport(["<html>"]) }).complete(req());
+    expect(r).toMatchObject({ ok: false, kind: "http" });
+  });
 });

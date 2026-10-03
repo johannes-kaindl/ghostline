@@ -8,6 +8,7 @@ import type { ChatTiming, SseTransport } from "../vendor/kit-obsidian/chat-clien
 import type { ClockPort } from "../vendor/kit-obsidian/clock";
 import { authHeaders, type EndpointConfig } from "../vendor/kit/endpoint_config";
 import { normalizeEndpoint } from "../vendor/kit/endpoint";
+import { errorMessageFromText } from "../vendor/kit/error_body";
 import { parseCompletionSSE } from "../core/completion-sse";
 
 export interface FimRequest {
@@ -20,13 +21,24 @@ export type FimResult =
 
 const RESERVED = new Set(["model", "prompt", "stream", "stop"]);
 
-function serverMessage(body: string): string {
+function oneLine(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/** Servermeldung für einen Fehlerkörper: Envelope, sonst einzeiliger Rohtext, sonst nur der Status. */
+function httpDetail(status: number, raw: string, bodyMayBeSuccess = false): string {
+  const msg = errorMessageFromText(raw, { bodyMayBeSuccess }) ?? oneLine(raw);
+  return msg === "" ? `HTTP ${status}` : `HTTP ${status}: ${msg}`;
+}
+
+/** `choices[0].text` aus einem nicht gestreamten Körper; `null`, wenn keine Completion. */
+function readCompletion(raw: string): { text: string; finishReason?: string } | null {
   try {
-    const j = JSON.parse(body) as { error?: { message?: unknown } | string; message?: unknown; detail?: unknown };
-    const m = typeof j.error === "string" ? j.error : j.error?.message ?? j.message ?? j.detail;
-    if (typeof m === "string" && m) return m;
-  } catch { /* kein JSON */ }
-  return body.replace(/\s+/g, " ").trim().slice(0, 200);
+    const j = JSON.parse(raw) as { choices?: { text?: unknown; finish_reason?: unknown }[] };
+    const c0 = j.choices?.[0];
+    if (typeof c0?.text !== "string") return null;
+    return { text: c0.text, ...(typeof c0.finish_reason === "string" && c0.finish_reason ? { finishReason: c0.finish_reason } : {}) };
+  } catch { return null; }
 }
 
 export function createFimClient(opts: { transport: SseTransport; fallbackTransport?: SseTransport; clock?: Pick<ClockPort, "now"> }) {
@@ -47,18 +59,29 @@ export function createFimClient(opts: { transport: SseTransport; fallbackTranspo
       let raw = "";
       let buffer = "";
       let finishReason: string | undefined;
+      let sawSse = false;
+      const digest = (text: string): void => {
+        const p = parseCompletionSSE(text);
+        buffer = p.rest;
+        if (!sawSse && /^\s*data:/m.test(text.slice(0, text.length - p.rest.length))) sawSse = true;
+        if (p.finishReason && finishReason === undefined) finishReason = p.finishReason;
+        if (p.text.length > 0) { full += p.text.join(""); req.onText(full); }
+      };
       const onChunk = (chunk: string): void => {
         if (firstChunkAt === undefined) firstChunkAt = clock.now();
         raw += chunk;
-        buffer += chunk;
-        const p = parseCompletionSSE(buffer);
-        buffer = p.rest;
-        if (p.finishReason) finishReason = p.finishReason;
-        if (p.text.length > 0) { full += p.text.join(""); req.onText(full); }
+        digest(buffer + chunk);
       };
       try {
         const status = await opts.transport.postStream(url, body(true), headers, onChunk, req.signal);
-        if (status < 200 || status >= 300) return { ok: false, kind: "http", status, detail: `HTTP ${status}: ${serverMessage(raw)}`, partial: full, timing: timing() };
+        if (status < 200 || status >= 300) return { ok: false, kind: "http", status, detail: httpDetail(status, raw), partial: full, timing: timing() };
+        digest(buffer + "\n");
+        if (!sawSse && raw.trim() !== "") {
+          const done = readCompletion(raw);
+          if (done === null) return { ok: false, kind: "http", status, detail: httpDetail(status, raw, true), partial: "", timing: timing() };
+          req.onText(done.text);
+          return { ok: true, text: done.text, ...(done.finishReason ? { finishReason: done.finishReason } : {}), timing: timing() };
+        }
         return { ok: true, text: full, ...(finishReason ? { finishReason } : {}), timing: timing() };
       } catch (e) {
         const name = e instanceof Error ? e.name : "";
@@ -67,12 +90,11 @@ export function createFimClient(opts: { transport: SseTransport; fallbackTranspo
           let text = "";
           try {
             const status = await opts.fallbackTransport.postStream(url, body(false), headers, (t) => { text += t; }, req.signal);
-            if (status < 200 || status >= 300) return { ok: false, kind: "http", status, detail: `HTTP ${status}: ${serverMessage(text)}`, partial: "", timing: timing() };
-            const j = JSON.parse(text) as { choices?: { text?: unknown }[] };
-            const t = j.choices?.[0]?.text;
-            const out = typeof t === "string" ? t : "";
-            req.onText(out);
-            return { ok: true, text: out, timing: timing() };
+            if (status < 200 || status >= 300) return { ok: false, kind: "http", status, detail: httpDetail(status, text), partial: "", timing: timing() };
+            const done = readCompletion(text);
+            if (done === null) return { ok: false, kind: "http", status, detail: httpDetail(status, text, true), partial: "", timing: timing() };
+            req.onText(done.text);
+            return { ok: true, text: done.text, ...(done.finishReason ? { finishReason: done.finishReason } : {}), timing: timing() };
           } catch (e2) {
             const n2 = e2 instanceof Error ? e2.name : "";
             return { ok: false, kind: n2 === "AbortError" ? "aborted" : "network", detail: e2 instanceof Error ? e2.message : String(e2), partial: "", timing: timing() };
