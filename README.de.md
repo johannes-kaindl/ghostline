@@ -9,6 +9,8 @@
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/ghostline?label=release)](https://github.com/johannes-kaindl/ghostline/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.11.4%2B%20·%20desktop-7c3aed)
 
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero.png" width="820" alt="Eine Notiz im Editor mit grauem Ghost-Text-Vorschlag, der den letzten Satz weiterführt"></p>
+
 Während du schreibst, wartet Ghostline eine kurze Pause ab, fragt ein lokales Modell, wie die aktuelle Zeile weitergehen könnte, und zeigt die Antwort als graue Schrift hinter dem Cursor. Tab übernimmt sie, Escape verwirft sie. Nichts verlässt deinen Rechner, solange du nicht selbst einen entfernten Endpunkt einträgst.
 
 ## Features
@@ -58,6 +60,10 @@ npm run build   # erzeugt main.js
 
 ## Usage
 
+<img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/list-suggestion.png" width="820" alt="Ein Ghost-Text-Vorschlag, der den letzten Listenpunkt vervollständigt">
+
+<img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/next-word.png" width="820" alt="Ein Wort mit Pfeil rechts übernehmen: der Rest des Vorschlags bleibt als graue Schrift stehen">
+
 - **Tab** übernimmt den ganzen Vorschlag; in den Einstellungen lässt es sich auf „nächstes Wort“ ändern oder abschalten. Ohne sichtbaren Vorschlag tut Tab, was es immer tut (zum Beispiel eine Liste einrücken).
 - **Pfeil rechts** übernimmt das nächste Wort, solange ein Vorschlag sichtbar ist.
 - **Escape** verwirft den Vorschlag. Bei eingeschaltetem Vim-Modus bleibt Escape bei Vim.
@@ -68,6 +74,8 @@ npm run build   # erzeugt main.js
 - **Notizen ausschließen:** per Muster in den Einstellungen oder mit `ghostline: false` in den Eigenschaften einer Notiz, siehe [Notizen ausschließen](https://github.com/johannes-kaindl/ghostline/blob/main/docs/how-to/exclude-notes.md).
 
 ## Configuration
+
+<a href="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/settings.png"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/thumbs/settings.png" width="380" alt="Der Einstellungen-Tab von Ghostline mit den Gruppen Help, Endpoint, Behavior und Exclusions"></a><br><sub>Vorschau anklicken für das Bild in voller Größe</sub>
 
 **Einstellungen → Community-Plugins → Ghostline**, mit den Standardwerten:
 

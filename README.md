@@ -9,6 +9,8 @@
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/ghostline?label=release)](https://github.com/johannes-kaindl/ghostline/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.11.4%2B%20·%20desktop-7c3aed)
 
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero.png" width="820" alt="A note in the editor with a grey ghost-text suggestion continuing the last sentence"></p>
+
 While you write, Ghostline waits for a short pause, asks a local model how the current line could continue and shows the answer as grey text behind the cursor. Tab takes it, Escape throws it away. Nothing leaves your machine unless you point it at a remote endpoint yourself.
 
 ## Features
@@ -58,6 +60,10 @@ npm run build   # produces main.js
 
 ## Usage
 
+<img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/list-suggestion.png" width="820" alt="A ghost-text suggestion completing the last item of a bullet list">
+
+<img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/next-word.png" width="820" alt="Accepting one word with the right arrow: the rest of the suggestion stays as grey text">
+
 - **Tab** accepts the whole suggestion; in the settings you can change it to "next word" or unbind it. Without a visible suggestion Tab does what it always does (indent a list, for example).
 - **Right arrow** accepts the next word while a suggestion is visible.
 - **Escape** dismisses the suggestion. With Vim mode on, Escape is left to Vim.
@@ -68,6 +74,8 @@ npm run build   # produces main.js
 - **Excluding notes:** by pattern in the settings or with `ghostline: false` in a note's properties, see [Exclude notes](https://github.com/johannes-kaindl/ghostline/blob/main/docs/how-to/exclude-notes.md).
 
 ## Configuration
+
+<a href="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/settings.png"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/thumbs/settings.png" width="380" alt="The Ghostline settings tab with the Help, Endpoint, Behavior and Exclusions groups"></a><br><sub>Click the preview for the full-size image</sub>
 
 **Settings → Community plugins → Ghostline**, with the defaults:
 
