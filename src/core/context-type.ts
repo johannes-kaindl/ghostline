@@ -1,3 +1,5 @@
+import { frontmatterCloseLine } from "./frontmatter";
+
 export type BlockKind = "text" | "frontmatter" | "code" | "math" | "table" | "inline-code";
 
 const FENCE = /^(`{3,}|~{3,})/;
@@ -23,9 +25,8 @@ function inInlineMath(before: string): boolean {
 
 export function blockKindAt(lines: readonly string[], line: number, ch: number): BlockKind {
   let start = 0;
-  if ((lines[0] ?? "").trim() === "---") {
-    let close = -1;
-    for (let i = 1; i < lines.length; i++) if (/^(---|\.\.\.)\s*$/.test(lines[i] ?? "")) { close = i; break; }
+  const close = frontmatterCloseLine((i) => lines[i]);
+  if (close !== null) {
     if (close === -1 || line <= close) return "frontmatter";
     start = close + 1;
   }

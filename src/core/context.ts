@@ -1,3 +1,5 @@
+import { frontmatterEnd } from "./frontmatter";
+
 export interface CompletionContext { title: string; extra: string; before: string; after: string }
 export interface ContextInput { title: string; docText: string; cursor: number; maxBefore: number; maxAfter: number; extra?: string }
 
@@ -36,12 +38,6 @@ export function windowStart(text: string, max: number): number {
     if (s >= minStart) return s;
   }
   return minStart;
-}
-
-function frontmatterEnd(doc: string): number {
-  if (!/^---\r?\n/.test(doc)) return 0;
-  const m = /\r?\n(---|\.\.\.)[ \t]*(\r?\n|$)/.exec(doc.slice(3));
-  return m ? 3 + (m.index ?? 0) + m[0].length : doc.length;
 }
 
 const MARGIN = 512;
