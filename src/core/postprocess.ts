@@ -47,7 +47,7 @@ function seam(before: string, completion: string): string {
   if (c === "") return "";
   const last = before.charAt(before.length - 1);
   if (last === "" || /\s/.test(last)) return c;
-  if (/[.!?…:;,)\]“”»«’"]/.test(last) && WORDCH.test(c.charAt(0))) return ` ${c}`;
+  if (/[.!?…:;,)\]]/.test(last) && WORDCH.test(c.charAt(0))) return ` ${c}`;
   if (WORDCH.test(last) && WORDCH.test(c.charAt(0))) return ` ${c}`;
   return c;
 }

@@ -27,8 +27,12 @@ describe("cleanCompletion", () => {
     expect(cleanCompletion("und dann", "Ich gehe(heute)", "", true)).toBe(" und dann");
     expect(cleanCompletion("und dann", "Ich gehe [1] ", "", true)).toBe("und dann");
     expect(cleanCompletion("und dann", "Ich gehe[1]", "", true)).toBe(" und dann");
-    expect(cleanCompletion("und dann", "Er sagt „Ja“", "", true)).toBe(" und dann");
-    expect(cleanCompletion("und dann", "Er sagt »Ja«", "", true)).toBe(" und dann");
+  });
+  it("kein Leerzeichen nach Anführungszeichen oder Apostroph (mehrdeutig)", () => {
+    expect(cleanCompletion("Ja", "Er sagt »", "", true)).toBe("Ja");
+    expect(cleanCompletion("Ja", "Er sagt \"", "", true)).toBe("Ja");
+    expect(cleanCompletion("Ja", "Er sagt „", "", true)).toBe("Ja");
+    expect(cleanCompletion("s", "geht’", "", true)).toBe("s");
   });
   it("Regressionen: Zeilenumbruch, CRLF, ganze Wiederholung, Leerantwort", () => {
     expect(cleanCompletion("in den Park", "Ich gehe\n", "", true)).toBe("in den Park");
