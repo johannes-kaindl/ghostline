@@ -1,5 +1,5 @@
 /**
- * GUI-Smoke — faehrt die Pruefpunkte G1-G15 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
+ * GUI-Smoke — faehrt die Pruefpunkte G1-G16 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
  * (CORE-TEST-02 b). Ein Fake-LLM-Server und ein Fake-Manager (llm-endpoint-manager, Plugin-API v1)
  * leben im Treiber: kein echtes Modell, keine echte URL, kein Schluessel.
  *
@@ -39,7 +39,7 @@ import { join } from "node:path";
 import { cwd } from "node:process";
 
 import { Cdp, attachTo, clickReal, closeExtraLeaves, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
-import { ERROR_PAUSE_MS } from "../src/core/settings.js";
+import { ERROR_PAUSE_MS, normalizeSettings } from "../src/core/settings.js";
 import { buildVault, requireEigenerBuild, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
 
 const REPO_NAME = "ghostline";
@@ -409,6 +409,38 @@ function selbsttestG15(): void {
   if (!ok) throw new Error("Selbsttest G15 fehlgeschlagen: die Pruefung unterscheidet dichte und undichte Bodies nicht.");
 }
 
+// ───────────────────────── G16: data.json traegt keinen Schluessel und keine Endpunkt-Liste ─────────────────────────
+interface DataJsonBefund { lesbar: boolean; keys: string[]; fremd: string[]; fehlend: string[] }
+/** Erlaubt sind genau die Schluessel, die `normalizeSettings` schreibt (Whitelist) — alles andere (apiKey, url, endpoints, ...) ist fremd. */
+function pruefeDataJson(text: string | null, erlaubt: string[], erwartet: string[]): DataJsonBefund {
+  let obj: unknown = null;
+  try { obj = text === null ? null : JSON.parse(text); } catch { obj = null; }
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return { lesbar: false, keys: [], fremd: [], fehlend: erwartet };
+  const keys = Object.keys(obj);
+  return { lesbar: true, keys, fremd: keys.filter((k) => !erlaubt.includes(k)), fehlend: erwartet.filter((k) => !keys.includes(k)) };
+}
+const DATA_JSON_ERWARTET = ["choice", "enabled"];
+/** Gegenprobe im Treiber, vor jedem Lauf: ein data.json mit apiKey/url/endpoints MUSS rot werden, ein sauberes gruen, ein leeres nicht gruen. */
+function selbsttestG16(): void {
+  const erlaubt = Object.keys(normalizeSettings({}));
+  const sauber = pruefeDataJson(JSON.stringify(normalizeSettings({})), erlaubt, DATA_JSON_ERWARTET);
+  const undicht = pruefeDataJson(JSON.stringify({ ...normalizeSettings({}), apiKey: "x", endpoints: [{ url: "http://h", apiKey: "y" }] }), erlaubt, DATA_JSON_ERWARTET);
+  const leer = pruefeDataJson("", erlaubt, DATA_JSON_ERWARTET);
+  const ok = sauber.lesbar && sauber.fremd.length === 0 && sauber.fehlend.length === 0
+    && undicht.fremd.includes("apiKey") && undicht.fremd.includes("endpoints")
+    && !leer.lesbar;
+  console.log(`Selbsttest G16: sauber fremd [${sauber.fremd.join(",")}], synthetisch undicht fremd [${undicht.fremd.join(",")}], leer lesbar ${String(leer.lesbar)} → ${ok ? "Pruefung kann rot werden" : "PRUEFUNG TAUGT NICHT"}`);
+  if (!ok) throw new Error("Selbsttest G16 fehlgeschlagen: die Pruefung erkennt apiKey/endpoints oder eine unlesbare Datei nicht.");
+}
+function g16(dataJsonPfad: string): void {
+  console.log("\nG16 · data.json ohne Schluessel und Endpunkt-Liste");
+  const erlaubt = Object.keys(normalizeSettings({}));
+  const text = existsSync(dataJsonPfad) ? readFileSync(dataJsonPfad, "utf8") : null;
+  const b = pruefeDataJson(text, erlaubt, DATA_JSON_ERWARTET);
+  if (!b.lesbar || b.fehlend.length) { nichtGemessen("G16 data.json ohne Schluessel", `data.json ${b.lesbar ? "lesbar, aber Erwartungsschluessel fehlen: " + b.fehlend.join(",") : "fehlt oder ist unlesbar"} (${dataJsonPfad}) — nichts zu pruefen`); return; }
+  record("G16 data.json ohne Schluessel", b.fremd.length === 0, `Schluessel in data.json: [${b.keys.join(", ")}]; ausserhalb der normalizeSettings-Whitelist: [${b.fremd.join(", ")}]; Erwartungsschluessel ${DATA_JSON_ERWARTET.join("/")} vorhanden`);
+}
+
 // ───────────────────────── Pruefpunkte ─────────────────────────
 
 async function g1bis5(cdp: Cdp, fake: FakeLlm): Promise<void> {
@@ -720,7 +752,7 @@ async function main(): Promise<void> {
   const port = portAus(argv);
   const vaultArg = argv.indexOf("--vault");
   const vaultFilter = vaultArg >= 0 ? argv[vaultArg + 1] : REPO_NAME;
-  const alleNamen = Array.from({ length: 15 }, (_, i) => `G${i + 1}`);
+  const alleNamen = Array.from({ length: 16 }, (_, i) => `G${i + 1}`);
   const warnungen: string[] = [];
   const fehler: string[] = [];
   let fake: FakeLlm | null = null;
@@ -728,6 +760,7 @@ async function main(): Promise<void> {
   let manager = false;
   try {
     selbsttestG15();
+    selbsttestG16();
     fake = await startFakeLlm();
     const f = fake;
     console.log(`Fake-LLM: ${f.url}`);
@@ -771,6 +804,8 @@ async function main(): Promise<void> {
     // Vim zuletzt: das Umschalten von vimMode laesst im laufenden Renderer Vim-Zustand zurueck
     // (gemessen im ersten Lauf: ein Rest davon veraenderte in G10 den Notiztext).
     await gruppe(["G9"], async () => { await g9(c); });
+    // G16 zuletzt: data.json nach der gesamten Aktivitaet des Laufs (Einstellungs-Saves, Auswahl, Reset).
+    await gruppe(["G16"], async () => { g16(join(v.basePath, v.configDir, "plugins", PLUGIN_ID, "data.json")); });
   } catch (e) {
     fehler.push((e as Error).message);
     console.error(`\nABBRUCH: ${(e as Error).message}`);
