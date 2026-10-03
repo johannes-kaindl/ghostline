@@ -28,3 +28,5 @@ Settings, with the groups as they appear in Settings → Ghostline and their def
 | Request | Sampling values and thinking | from the kit table, mode "complete" | see the section in the settings |
 
 Fixed values: the text after the cursor is capped at 200 characters, a suggestion asks for at most 40 tokens and ends at the first line break, and a request is given up after 20 seconds.
+
+Error handling: after an error (endpoint not reachable, timeout, context too long, token budget used up) Ghostline makes no automatic request for 10 seconds; "Suggest now" still works during the pause. After three empty answers in a row the status bar shows a warning ("Empty responses — is the model thinking?").

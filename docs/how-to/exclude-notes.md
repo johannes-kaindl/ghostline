@@ -6,7 +6,7 @@ Ghostline never sends anything from an excluded note and shows no suggestions th
 
 Open **Settings → Ghostline → Exclusions → Excluded notes**. Write one pattern per line, in the style of a `.gitignore`.
 
-- `Clippings/` excludes the whole folder `Clippings`.
+- `Clippings/` excludes every folder named `Clippings`, at any depth (`Clippings/` and `Projects/Clippings/` alike). To mean only the folder at the top of the vault, start the pattern with a slash: `/Clippings/`.
 - `80_Archiv/alt` excludes the path `80_Archiv/alt` and everything below it.
 - `*.excalidraw.md` excludes every note whose name ends in `.excalidraw.md`, in any folder.
 - To allow only one folder, exclude everything and then allow it again: write `*` on one line and `!Notes/**` on the next.

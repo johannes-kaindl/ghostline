@@ -18,3 +18,10 @@ All notable changes to this project are documented here. The format follows
 - Settings tab with help row, German and English interface.
 - Requires Obsidian 1.11.4 or newer: the endpoint keys are read from the Obsidian keychain (`app.secretStorage`).
 - `npm run smoke:gui` (GUI smoke against a running Obsidian) and `npm run latency` (latency measurement, only after agreement).
+
+### Fixed
+
+- While a suggestion streams in, a repeated start of the sentence is no longer shown, and Tab never inserts text that the suggestion no longer shows.
+- The "Last request" line in the Request section now shows the parameters of the last request (sampling values and stop list, never note text).
+- Only the pane with the cursor asks for suggestions; a second pane on the same note stays quiet.
+- The command "Turn Ghostline on or off" is now "Turn suggestions on or off" (Obsidian already shows the plugin name in front).
