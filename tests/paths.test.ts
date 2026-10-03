@@ -36,6 +36,33 @@ describe("Chat-Weg", () => {
   });
 });
 
+describe("Chat-Weg: Fehlerarten und Denken", () => {
+  const clock = { now: () => Date.now(), setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms) as unknown as number, clearTimeout: (id: number) => clearTimeout(id) };
+  const run = (transport: SseTransport) => {
+    const texts: string[] = [];
+    const p = createChatPath(createChatClient({ transport, clock })).request({ ctx, endpoint: { url: "http://h:1234" }, model: "m", params: {}, signal: new AbortController().signal, onText: (t) => texts.push(t) });
+    return { p, texts };
+  };
+  it("overflow bleibt overflow", async () => {
+    const { p } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('{"error":{"message":"maximum context length exceeded"}}'); return 400; } });
+    const r = await p;
+    expect(r).toMatchObject({ ok: false, kind: "overflow" });
+    if (!r.ok) expect(r.detail).toContain("context length");
+  });
+  it("truncated bleibt truncated", async () => {
+    const { p } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n'); onChunk("data: [DONE]\n"); return 200; } });
+    const r = await p;
+    expect(r).toMatchObject({ ok: false, kind: "truncated" });
+    if (!r.ok) expect(r.detail).not.toBe("");
+  });
+  it("Denken im Strom gelangt nicht in den Geistertext", async () => {
+    const { p, texts } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('data: {"choices":[{"delta":{"content":"<think>grübel</think>morgen"}}]}\n'); onChunk("data: [DONE]\n"); return 200; } });
+    const r = await p;
+    expect(r).toMatchObject({ ok: true, raw: "morgen" });
+    expect(texts.join("|")).not.toContain("grübel");
+  });
+});
+
 describe("FIM-Weg", () => {
   it("baut den FIM-Prompt und vereinigt stop", async () => {
     const seen: { url?: string; body?: Record<string, unknown> } = {};

@@ -13,8 +13,7 @@ export function createChatPath(chat: ChatClient): CompletionPath {
         onToken: (t) => { acc += t; r.onText(acc); },
       });
       if (res.ok) return { ok: true, raw: res.content, timing: res.timing, facts: { status: 200, content: res.content, reasoning: res.reasoning, finishReason: res.finishReason ?? null, ...(res.model ? { responseModel: res.model } : {}) } };
-      const kind = res.kind === "aborted" || res.kind === "network" || res.kind === "timeout" || res.kind === "http" ? res.kind : "other";
-      return { ok: false, kind, detail: res.detail, timing: res.timing };
+      return { ok: false, kind: res.kind, detail: res.detail, timing: res.timing };
     },
   };
 }

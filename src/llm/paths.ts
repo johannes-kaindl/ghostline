@@ -15,7 +15,7 @@ export interface PathRequest {
 }
 export type PathResult =
   | { ok: true; raw: string; timing: ChatTiming; facts: ResponseFacts }
-  | { ok: false; kind: "aborted" | "network" | "timeout" | "http" | "other"; detail: string; timing?: ChatTiming };
+  | { ok: false; kind: "aborted" | "network" | "timeout" | "http" | "overflow" | "truncated" | "other"; detail: string; timing?: ChatTiming };
 export interface CompletionPath { readonly kind: "chat" | "fim"; request(r: PathRequest): Promise<PathResult> }
 
 /** Anfrage-Parameter aus der Kit-Tabelle, Modus `complete`; kein fester Temperaturwert im Plugin. */
