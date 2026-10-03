@@ -58,4 +58,28 @@ describe("buildContext", () => {
     const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 1500, maxAfter: 200 });
     expect(c.before).toBe("\nSchreib an [redacted-email] und ");
   });
+  it("Private-Key-Block, der den Fensteranfang überspannt, hinterlässt keinen Schlüsseltext", () => {
+    const key = "-----BEGIN RSA PRIVATE KEY-----\nSECRETBODY1\n\nSECRETBODY2\n-----END RSA PRIVATE KEY-----";
+    const doc = "Start.\n\n" + key + "\n\nEnde davor ";
+    const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 70, maxAfter: 10 });
+    expect(c.before).not.toContain("SECRETBODY");
+    expect(c.before).not.toContain("PRIVATE KEY");
+  });
+  it("Token an der Schnittkante hinterlässt kein Fragment", () => {
+    const doc = "x".repeat(50) + " sk-abcdefghijklmnopqrstuv tail ";
+    const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 20, maxAfter: 10 });
+    expect(c.before).not.toContain("klmnop");
+  });
+  it("2-MB-Dokument: schnell und korrekt", () => {
+    const body = "Ein Satz ohne Ende, ".repeat(100_000);
+    const doc = body + "MITTE " + body;
+    const cursor = body.length + "MITTE ".length;
+    const t0 = performance.now();
+    const c = buildContext({ title: "t", docText: doc, cursor, maxBefore: 1500, maxAfter: 200 });
+    expect(performance.now() - t0).toBeLessThan(200);
+    expect(c.after.length).toBe(200);
+    expect(c.after.startsWith("Ein Satz")).toBe(true);
+    expect(c.before.length).toBeLessThanOrEqual(1500);
+    expect(c.before.endsWith("MITTE ")).toBe(true);
+  });
 });

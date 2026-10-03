@@ -36,10 +36,16 @@ function frontmatterEnd(doc: string): number {
   return m ? 3 + (m.index ?? 0) + m[0].length : doc.length;
 }
 
+const MARGIN = 512;
+
+/** Schwärzen VOR dem Fensterschnitt, damit der Schnitt kein Geheimnis-Fragment freilegt.
+ *  Die Arbeit ist begrenzt (Vorlauf maxBefore*3 + Rand, Nachlauf maxAfter + Rand); Trade-off:
+ *  ein Schlüsselblock, dessen BEGIN-Zeile vor dem Vorlauf liegt, ist nicht erkennbar. */
 export function buildContext(i: ContextInput): CompletionContext {
   const fm = frontmatterEnd(i.docText);
-  const rawBefore = removeQueryBlocks(i.docText.slice(Math.min(fm, i.cursor), i.cursor));
-  const before = redact(rawBefore.slice(windowStart(rawBefore, i.maxBefore)));
-  const after = redact(removeQueryBlocks(i.docText.slice(i.cursor))).slice(0, i.maxAfter);
+  const from = Math.max(Math.min(fm, i.cursor), i.cursor - (i.maxBefore * 3 + MARGIN));
+  const rawBefore = redact(removeQueryBlocks(i.docText.slice(from, i.cursor)));
+  const before = rawBefore.slice(windowStart(rawBefore, i.maxBefore));
+  const after = redact(removeQueryBlocks(i.docText.slice(i.cursor, i.cursor + i.maxAfter + MARGIN))).slice(0, i.maxAfter);
   return { title: redact(i.title), extra: i.extra ?? "", before, after };
 }
