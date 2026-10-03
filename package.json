@@ -1,6 +1,6 @@
 {
   "name": "ghostline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Inline ghost-text completion for the current line, powered by a local LLM. Tab accepts.",
   "type": "module",
   "scripts": {
