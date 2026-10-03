@@ -15,6 +15,7 @@ export const STRINGS = {
     "status.empty": "Empty responses — is the model thinking?",
     "status.alwaysThinks": "This model always thinks — suggestions will be slow",
     "status.fimUnsupported": "FIM is not available for this model — using chat",
+    "status.overflow": "Context too long for the model — lower the context length in the settings",
   },
   de: {
     "plugin.name": "Ghostline",
@@ -30,6 +31,7 @@ export const STRINGS = {
     "status.empty": "Leere Antworten — denkt das Modell?",
     "status.alwaysThinks": "Dieses Modell denkt immer — Vorschläge kommen langsam",
     "status.fimUnsupported": "FIM gibt es für dieses Modell nicht — Chat wird verwendet",
+    "status.overflow": "Kontext zu lang für das Modell — Kontextlänge in den Einstellungen verringern",
   },
 };
 

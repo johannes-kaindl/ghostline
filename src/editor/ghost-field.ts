@@ -38,7 +38,7 @@ export const ghostField = StateField.define<Ghost | null>({
       const pos = value.pos + c.inserted.length;
       return tr.state.selection.main.head === pos ? { pos, text: rest } : null;
     }
-    if (tr.selection && tr.state.selection.main.head !== value.pos) return null;
+    if (tr.selection && (tr.state.selection.main.head !== value.pos || !tr.state.selection.main.empty)) return null;
     return value;
   },
   provide: (f) => EditorView.decorations.from(f, (g) =>

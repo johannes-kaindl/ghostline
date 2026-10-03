@@ -30,3 +30,11 @@ describe("ghostField", () => {
     expect(s.field(ghostField)).toBeNull();
   });
 });
+
+describe("ghostField: Auswahl", () => {
+  it("nichtleere Auswahl entfernt den Ghost", () => {
+    const s = EditorState.create({ doc: "Ich gehe ", selection: { anchor: 9 }, extensions: [ghostField] })
+      .update({ effects: setGhost.of({ pos: 9, text: "x" }) }).state;
+    expect(s.update({ selection: { anchor: 3, head: 9 } }).state.field(ghostField)).toBeNull();
+  });
+});
