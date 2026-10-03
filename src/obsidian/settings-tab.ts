@@ -1,10 +1,12 @@
 import { App, PluginSettingTab, Setting, type SettingDefinitionItem } from "obsidian";
 import type GhostlinePlugin from "../main";
 import { t } from "../vendor/kit/i18n";
-import { parsePatterns } from "../vendor/kit/ignore";
+import { createDebouncer, excludeDescription, parseBounded } from "../core/settings-input";
+import { deviationDetail } from "./deviation-text";
+import { realClock } from "../vendor/kit-obsidian/clock";
 import { FAMILIES, BACKENDS, type FamilyId, type BackendId, type FieldExplain } from "../vendor/kit/sampling-profiles";
 import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
-import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
+import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab, installTabRefreshOnOpen } from "../vendor/kit-obsidian/settings_walker";
 import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
 import { buildRequestSection } from "../vendor/kit-obsidian/request-section";
 import type { CollapsibleStorage } from "../vendor/kit-obsidian/collapsible";
@@ -21,7 +23,18 @@ export class GhostlineSettingTab extends PluginSettingTab {
     setCollapsed: (k, c) => { this.collapsedState.set(k, c); },
   };
 
-  constructor(app: App, private readonly plugin: GhostlinePlugin) { super(app, plugin); }
+  private uninstallRefresh: () => void = () => {};
+  /** Ausstehende Muster-Speicherung; `hide()` und jeder Neuaufbau führen sie vorher aus. */
+  private readonly patternSave = createDebouncer(realClock, 400, () => { void this.plugin.saveSettings(); });
+
+  constructor(app: App, private readonly plugin: GhostlinePlugin) {
+    super(app, plugin);
+    // Ab Obsidian 1.13 zeichnet renderTab() bei gleicher Zeilenzahl nicht neu; ohne den Hook
+    // blieben „kein Manager“-Hinweis und „Letzte Anfrage“ veraltet.
+    this.uninstallRefresh = installTabRefreshOnOpen(this, () => this.renderImperative());
+  }
+
+  hide(): void { this.patternSave.flush(); this.uninstallRefresh(); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     const groups: GroupDef[] = [
@@ -30,8 +43,8 @@ export class GhostlineSettingTab extends PluginSettingTab {
         { name: t("set.enabled"), desc: t("set.enabledDesc"), control: { type: "toggle", key: "enabled" } },
         { name: t("set.tab"), desc: t("set.tabDesc"), render: (s) => { this.renderDropdown<TabAction>(s, ["accept-all", "accept-word", "none"], "set.tab", () => this.plugin.settings.tabAction, (v) => { this.plugin.settings.tabAction = v; }); } },
         { name: t("set.path"), desc: t("set.pathDesc"), render: (s) => { this.renderDropdown<RequestPathSetting>(s, ["auto", "chat", "fim"], "set.path", () => this.plugin.settings.requestPath, (v) => { this.plugin.settings.requestPath = v; }); } },
-        { name: t("set.delay"), desc: t("set.delayDesc"), control: { type: "number", key: "delayMs", min: DELAY_MIN } },
-        { name: t("set.context"), desc: t("set.contextDesc"), control: { type: "number", key: "contextChars", min: CONTEXT_MIN } },
+        { name: t("set.delay"), desc: t("set.delayDesc", String(DELAY_MIN), String(DELAY_MAX)), render: (s) => { this.renderNumber(s, "delayMs", DELAY_MIN, DELAY_MAX); } },
+        { name: t("set.context"), desc: t("set.contextDesc", String(CONTEXT_MIN), String(CONTEXT_MAX)), render: (s) => { this.renderNumber(s, "contextChars", CONTEXT_MIN, CONTEXT_MAX); } },
       ] },
       { type: "group", heading: t("set.groupExclusions"), items: [{ name: t("set.exclude"), desc: t("set.excludeDesc"), render: (s) => { this.renderExclusions(s); } }] },
       { type: "group", heading: t("set.groupRequest"), items: [{ name: t("set.groupRequest"), render: (s) => { this.renderRequest(s); } }] },
@@ -52,16 +65,32 @@ export class GhostlineSettingTab extends PluginSettingTab {
   }
 
   private renderExclusions(s: Setting): void {
+    s.setDesc(excludeDescription(this.plugin.settings.excludePatterns));
     s.addTextArea((ta) => {
       ta.setValue(this.plugin.settings.excludePatterns);
       ta.inputEl.rows = 5;
-      ta.inputEl.addEventListener("blur", () => {
+      // Speichern beim Tippen (entprellt) und beim Verlassen; der Tab wird NICHT neu gebaut,
+      // sonst ginge ein Klick auf das nächste Feld verloren. Nur die Beschreibung ändert sich.
+      ta.inputEl.addEventListener("input", () => {
         this.plugin.settings.excludePatterns = ta.getValue();
-        void this.plugin.saveSettings().then(() => this.refreshUi());
+        s.setDesc(excludeDescription(ta.getValue()));
+        this.patternSave.schedule();
+      });
+      ta.inputEl.addEventListener("change", () => { this.patternSave.flush(); });
+    });
+  }
+
+  private renderNumber(s: Setting, key: "delayMs" | "contextChars", min: number, max: number): void {
+    s.addText((tx) => {
+      tx.setValue(String(this.plugin.settings[key]));
+      tx.inputEl.inputMode = "numeric";
+      // Übernommen wird beim Bestätigen (change), nicht je Tastendruck; danach zeigt das Feld den geklemmten Wert.
+      tx.inputEl.addEventListener("change", () => {
+        const n = parseBounded(tx.getValue(), min, max);
+        if (n !== null) { this.plugin.settings[key] = n; void this.plugin.saveSettings(); }
+        tx.setValue(String(this.plugin.settings[key]));
       });
     });
-    const invalid = parsePatterns(this.plugin.settings.excludePatterns).invalid;
-    if (invalid.length > 0) s.setDesc(`${t("set.excludeDesc")} ${t("set.excludeInvalid", invalid.join(", "))}`);
   }
 
   private renderEndpoint(s: Setting): void {
@@ -126,7 +155,7 @@ export class GhostlineSettingTab extends PluginSettingTab {
         copied: t("request.copied"),
         deviationsOk: t("request.deviationsOk"),
         deviationsWarn: (n) => t("request.deviationsWarn", String(n)),
-        deviation: (kind, count, detail) => `${kind}${detail ? `: ${detail}` : ""} (${count}×)`,
+        deviation: (kind, count, detail) => `${deviationDetail(kind, detail)} (${count}×)`,
       },
     });
   }
@@ -134,26 +163,17 @@ export class GhostlineSettingTab extends PluginSettingTab {
   display(): void { this.renderImperative(); }
   private refreshUi(): void { refreshSettingsTab(this, () => this.renderImperative()); }
   private renderImperative(): void {
+    this.patternSave.flush();
     this.cleanupPrevious();
     this.containerEl.empty();
     this.cleanupPrevious = renderSettingDefinitions(this.containerEl, this.getSettingDefinitions(), this, this.app);
   }
 
   getControlValue(key: string): string | number | boolean | undefined {
-    const s = this.plugin.settings;
-    if (key === "enabled") return s.enabled;
-    if (key === "delayMs") return s.delayMs;
-    if (key === "contextChars") return s.contextChars;
-    return undefined;
+    return key === "enabled" ? this.plugin.settings.enabled : undefined;
   }
 
   setControlValue(key: string, value: unknown): void {
-    const s = this.plugin.settings;
-    const n = Number.parseInt(String(value), 10);
-    if (key === "enabled") { void this.plugin.setEnabled(Boolean(value)); return; }
-    else if (key === "delayMs" && Number.isFinite(n)) s.delayMs = Math.min(DELAY_MAX, Math.max(DELAY_MIN, n));
-    else if (key === "contextChars" && Number.isFinite(n)) s.contextChars = Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, n));
-    else return;
-    void this.plugin.saveSettings();
+    if (key === "enabled") void this.plugin.setEnabled(Boolean(value));
   }
 }

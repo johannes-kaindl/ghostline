@@ -12,6 +12,7 @@ import type { RequestSectionState } from "./vendor/kit-obsidian/request-section"
 import { realClock } from "./vendor/kit-obsidian/clock";
 import { DEFAULT_SETTINGS, normalizeSettings, type GhostlineSettings } from "./core/settings";
 import { createExclusionCache } from "./core/exclusion";
+import { ghostCommandAvailable } from "./editor/ghost-command";
 import { ghostField } from "./editor/ghost-field";
 import { ghostKeymap } from "./editor/ghost-keymap";
 import { createChatPath } from "./llm/chat-path";
@@ -34,6 +35,8 @@ export default class GhostlinePlugin extends Plugin {
   settings: GhostlineSettings = DEFAULT_SETTINGS;
   source: EndpointSourceResult | null = null;
   private targetPromise: Promise<Target | null> | null = null;
+  /** Zählt Auflösungen; das Ergebnis einer überholten Auflösung darf `source` nicht überschreiben. */
+  private targetGen = 0;
   private status!: StatusItem;
   private statusState: StatusState = { enabled: true, kind: "ok" };
   private exclusions = createExclusionCache(() => this.settings.excludePatterns, (p) => {
@@ -60,7 +63,7 @@ export default class GhostlinePlugin extends Plugin {
       clock: realClock,
       settings: () => this.settings,
       target: () => this.target(),
-      invalidateTarget: () => { this.targetPromise = null; },
+      invalidateTarget: () => { this.invalidateTarget(); },
       paths: (kind, template): CompletionPath => {
         if (kind === "fim" && template) return createFimPath(fim, template);
         const choice = transportFor({ transport: this.source?.transport ?? "http" }, { http: xhrSseTransport, httpFallback: requestUrlTransport });
@@ -108,9 +111,8 @@ export default class GhostlinePlugin extends Plugin {
       editorCheckCallback: (checking, editor) => {
         const v = viewOf(editor);
         if (!v) return false;
-        if (checking) return id === "request-now" || v.state.field(ghostField, false) !== null;
-        run(v);
-        return true;
+        if (checking) return ghostCommandAvailable(id, v.state.field(ghostField, false) ?? null);
+        return run(v);
       },
     });
     editorCmd("accept", t("cmd.accept"), (v) => sessionOf(v)?.accept("all") ?? false);
@@ -126,15 +128,17 @@ export default class GhostlinePlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("resolved", () => this.exclusions.invalidate()));
     this.registerEvent(this.app.vault.on("rename", () => this.exclusions.invalidate()));
     this.app.workspace.onLayoutReady(() => {
-      this.register(onEndpointManagerChanged(this.app, () => { this.targetPromise = null; }));
+      this.register(onEndpointManagerChanged(this.app, () => { this.invalidateTarget(); }));
     });
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.exclusions.invalidate();
-    this.targetPromise = null;
+    this.invalidateTarget();
   }
+
+  private invalidateTarget(): void { this.targetPromise = null; this.targetGen++; }
 
   async saveRequestSettings(next: RequestSettings): Promise<void> { this.settings.request = next; await this.saveSettings(); }
 
@@ -153,11 +157,12 @@ export default class GhostlinePlugin extends Plugin {
    *  Fehler). Die Manager-API selbst wird bei jeder Auflösung frisch gelesen (REGISTRY). */
   target(): Promise<Target | null> {
     if (this.targetPromise) return this.targetPromise;
+    const gen = ++this.targetGen;
     this.targetPromise = resolveEndpointSource({
       manager: findEndpointManager(this.app), local: [], capability: "chat",
       choice: this.settings.choice, caller: "ghostline",
     }, async () => false).then((r) => {
-      this.source = r;
+      if (gen === this.targetGen) this.source = r;
       if (!r.config || !r.sentModel) return null;
       return { endpoint: r.config, model: r.sentModel, family: r.family, backend: r.backend };
     }).catch(() => null);
