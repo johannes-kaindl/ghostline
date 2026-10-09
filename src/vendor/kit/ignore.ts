@@ -1,4 +1,4 @@
-// vendored from code-kit@0.11.0, src/ts/pure/ignore.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.15.0, src/ts/pure/ignore.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Ignore patterns in `.gitignore` style, applied to FOLDER paths only.
  *
  *  Lifted from `shadow-tree/src/core/ignore.ts` (shadow-tree wave 14, spec § 5); the second

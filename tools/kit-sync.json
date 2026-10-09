@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.48.1"
+      "ref": "0.51.2"
     },
     "code-kit": {
-      "ref": "0.11.0"
+      "ref": "0.15.0"
     }
   },
   "targets": [
@@ -26,7 +26,11 @@
         "model-choice",
         "think-splitter",
         "endpoint_diagnostics",
-        "model-list-cache"
+        "model-list-cache",
+        "backend-probe",
+        "capabilities",
+        "redact",
+        "secrets"
       ]
     },
     {
@@ -42,8 +46,7 @@
       "source": "obsidian-kit",
       "from": "src/pure",
       "modules": [
-        "endpoint-source",
-        "secrets"
+        "endpoint-source"
       ],
       "rewrite": [
         [
@@ -80,7 +83,10 @@
         "clipboard",
         "secrets",
         "endpoint-secrets",
-        "endpoint-list"
+        "endpoint-list",
+        "llm-connection",
+        "llm-connection-strings",
+        "backend-probe"
       ],
       "rewrite": [
         [
@@ -102,6 +108,7 @@
       "source": "obsidian-kit",
       "from": "src/testing",
       "modules": [
+        "kit-css",
         "obsidian-mock"
       ]
     }
