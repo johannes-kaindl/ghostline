@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The chat request now runs on the shared obsidian-kit connection: endpoint resolution, request parameters, the check of every answer and the **Request** section come from one place. The Settings tab shows endpoint, model and **Request** (collapsed by default) in one block under **Endpoint**.
-- The chat client now lives per endpoint instead of per request. If a streaming request fails with a network error, the client switches to answers without streaming and stays there until Obsidian restarts or the endpoint changes.
+- The chat client now lives per endpoint instead of per request. After a network error in the stream it falls back to answers without streaming only if that fallback succeeds; a changed endpoint or a settings change starts a fresh client.
 - A request that ends at the token limit is still reported as "token budget used up". Waiting times stay at 15 seconds for the first chunk and 15 seconds of silence.
 - Deviations (for example an empty answer because thinking used the token budget) are reported once per kind and appear in the status bar and in the **Request** section, also for the fill-in-the-middle path.
 - Secrets in the text before and after the cursor are masked with the shared rules before they are cut to the context window. A leftover half of a private key between two unpaired `END` lines is now masked as well.

@@ -35,7 +35,7 @@ export class GhostlineSettingTab extends PluginSettingTab {
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     const groups: GroupDef[] = [
-      { type: "group", heading: t("set.groupEndpoint"), items: [{ name: t("set.endpoint"), render: (s) => { this.llm.renderSettings(settingBodyHost(s), { lang: getLang(), endpointSource: { managedDesc: t("set.managedDesc") } }); } }] },
+      { type: "group", heading: t("set.groupEndpoint"), items: [{ name: t("set.endpoint"), render: (s) => { this.llm.renderSettings(settingBodyHost(s), { lang: getLang() }); } }] },
       { type: "group", heading: t("set.groupBehavior"), items: [
         { name: t("set.enabled"), desc: t("set.enabledDesc"), control: { type: "toggle", key: "enabled" } },
         { name: t("set.tab"), desc: t("set.tabDesc"), render: (s) => { this.renderDropdown<TabAction>(s, ["accept-all", "accept-word", "none"], "set.tab", () => this.plugin.settings.tabAction, (v) => { this.plugin.settings.tabAction = v; }); } },
