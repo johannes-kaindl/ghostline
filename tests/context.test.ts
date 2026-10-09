@@ -96,6 +96,9 @@ describe("buildContext", () => {
     expect(c.after).not.toContain("QUJDRE");
     expect(c.after).not.toContain("PRIVATE KEY");
   });
+  it("redact: zwei verwaiste END-Zeilen — der Teil dazwischen gehört zu einem abgeschnittenen Schlüssel und wird mitgeschwärzt (Kit-Regel, gierig)", () => {
+    expect(redact("a\n-----END PRIVATE KEY-----\nb\n-----END PRIVATE KEY-----\nc")).toBe("[redacted-private-key]\nc");
+  });
   it("redact: verwaiste END- und BEGIN-Hälften", () => {
     expect(redact("body\nmore\n-----END RSA PRIVATE KEY-----\nText")).toBe("[redacted-private-key]\nText");
     expect(redact("Text\n-----BEGIN PRIVATE KEY-----\nbody")).toBe("Text\n[redacted-private-key]");

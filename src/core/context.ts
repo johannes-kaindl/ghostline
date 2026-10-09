@@ -1,26 +1,16 @@
 import { frontmatterEnd } from "./frontmatter";
+import { EMAIL_REDACT_RULE, SECRET_REDACT_RULES, redactText } from "../vendor/kit/redact";
 
 export interface CompletionContext { title: string; extra: string; before: string; after: string }
 export interface ContextInput { title: string; docText: string; cursor: number; maxBefore: number; maxAfter: number; extra?: string }
 
 const QUERY_BLOCK = /```(?:dataview|dataviewjs|base)[^\n]*\n[\s\S]*?```/g;
-const REDACTIONS: [RegExp, string][] = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[redacted-private-key]"],
-  [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]"],
-  [/\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/g, "Bearer [redacted-token]"],
-  [/\b(?:sk|rk|pk|ghp|gho|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_-]{12,}/g, "[redacted-token]"],
-  [/\bAKIA[0-9A-Z]{16}\b/g, "[redacted-token]"],
-];
+const MAIL_AND_SECRETS = [...SECRET_REDACT_RULES, EMAIL_REDACT_RULE];
 
 export function removeQueryBlocks(text: string): string { return text.replace(QUERY_BLOCK, ""); }
-const ORPHAN_END = /^[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/;
-const ORPHAN_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*$/;
-
-/** Nach der Paarregel auch verwaiste Hälften schwärzen: an Ausschnittsrändern kann BEGIN oder END fehlen. */
+/** Schwärzt Geheimnisse und E-Mail-Adressen (Kit-Regeln, dazu die Kit-Regel für verwaiste PEM-Hälften an Ausschnittsrändern). */
 export function redact(text: string): string {
-  return REDACTIONS.reduce((t, [re, rep]) => t.replace(re, rep), text)
-    .replace(ORPHAN_END, "[redacted-private-key]")
-    .replace(ORPHAN_BEGIN, "[redacted-private-key]");
+  return redactText(text, MAIL_AND_SECRETS).text;
 }
 
 /** Anfang des Fensters über `text`: die früheste Absatzgrenze, ab der höchstens `max` Zeichen

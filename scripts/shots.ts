@@ -185,15 +185,14 @@ async function settingsBild(cdp: Cdp, port: number, opts: ShotOptions): Promise<
     const box = (await boxOf(fenster, ".vertical-tab-content", 0)) ?? (await boxOf(fenster, ".modal-content", 0));
     if (!box) return "settings.png — kein Inhaltsbereich im Einstellungen-Fenster";
     // In Schritten einer Sichthoehe abwaerts, bis das Ende erreicht ist; jede Aufnahme wird an ihre echte scrollTop gesetzt.
-    // Das Bild endet oberhalb der Gruppe "Request": dort stehen Zeilen, die vom Endpunkt-Zustand abhaengen
-    // (Familie/Backend unbekannt) und nicht den Auslieferungszustand der Einstellungen zeigen.
+    // Das Bild reicht bis zum Ende des Tabs. Der Anfrage-Abschnitt der Verbindung (Kit) ist eingeklappt und zeigt nur
+    // seine Kopfzeile; seine Zeilen haengen vom Endpunkt-Zustand ab und gehoeren nicht ins Bild.
     const schnitt = await fenster.evaluate<number>(`
       const el = document.querySelector(".vertical-tab-content");
       el.scrollTop = 0;
-      const h = [...el.querySelectorAll(".setting-item-heading")].find((e) => e.textContent.trim() === "Request");
-      return h ? Math.round(h.getBoundingClientRect().top - ${box.y} - 12) : -1;
+      return Math.round(el.scrollHeight);
     `);
-    if (schnitt < 200) return "settings.png — Gruppe Request nicht gefunden, Schnitt nicht moeglich";
+    if (schnitt < 200) return "settings.png — Tab-Inhalt zu kurz, Schnitt nicht moeglich";
     const teile: { png: Buffer; top: number }[] = [];
     let ziel = 0;
     for (let i = 0; i < 12; i++) {

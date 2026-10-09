@@ -4,6 +4,7 @@ import "../src/i18n/strings";
 import { GhostlineSettingTab } from "../src/obsidian/settings-tab";
 import { DEFAULT_SETTINGS } from "../src/core/settings";
 import type GhostlinePlugin from "../src/main";
+import type { LlmConnection } from "../src/vendor/kit-obsidian/llm-connection";
 
 describe("GhostlineSettingTab", () => {
   it("Refresh-Hook greift auch beim zweiten Öffnen nach hide() (Obsidian 1.13+: Öffnen ruft renderTab, Final-Review M3)", () => {
@@ -13,7 +14,7 @@ describe("GhostlineSettingTab", () => {
     try {
       const rebuild = vi.spyOn(GhostlineSettingTab.prototype as unknown as { renderImperative(): void }, "renderImperative").mockImplementation(() => {});
       const plugin = { manifest: { id: "ghostline" }, settings: { ...DEFAULT_SETTINGS }, saveSettings: async () => {} } as unknown as GhostlinePlugin;
-      const tab = new GhostlineSettingTab({} as App, plugin) as unknown as { renderTab(): void; hide(): void; display(): void };
+      const tab = new GhostlineSettingTab({} as App, plugin, { renderSettings: () => {}, hideSettings: () => {} } as unknown as LlmConnection) as unknown as { renderTab(): void; hide(): void; display(): void };
       tab.renderTab();
       expect(rebuild).toHaveBeenCalledTimes(1);
       tab.hide();

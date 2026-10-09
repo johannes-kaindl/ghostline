@@ -1,5 +1,5 @@
 /**
- * GUI-Smoke — faehrt die Pruefpunkte G1-G19 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
+ * GUI-Smoke — faehrt die Pruefpunkte G1-G20 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
  * (CORE-TEST-02 b). Ein Fake-LLM-Server und ein Fake-Manager (llm-endpoint-manager, Plugin-API v1)
  * leben im Treiber: kein echtes Modell, keine echte URL, kein Schluessel.
  *
@@ -192,9 +192,17 @@ async function startFakeLlm(): Promise<FakeLlm> {
   let port = 0;
   let server: Server | null = null;
 
-  const sende = (res: ServerResponse, kind: "chat" | "comp"): void => {
+  const sende = (res: ServerResponse, kind: "chat" | "comp", stream: boolean): void => {
     let i = 0;
     const stuecke = antworten.shift() ?? STUECKE;
+    if (!stream) {
+      // Wie ein echter Server: `stream: false` bekommt eine volle Completion (JSON), nie einen SSE-Strom.
+      const text = stuecke.join("");
+      const body = kind === "chat" ? { choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }] } : { choices: [{ text, finish_reason: "stop" }] };
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify(body));
+      return;
+    }
     const next = (): void => {
       if (res.destroyed || res.writableEnded) return;
       if (i < stuecke.length) {
@@ -228,7 +236,8 @@ async function startFakeLlm(): Promise<FakeLlm> {
       ankuenfte.push(Date.now());
       if (kind === "chat") chat += 1; else comp += 1;
       let model: string | null = null;
-      try { model = ((JSON.parse(body) as { model?: unknown }).model as string | undefined) ?? null; } catch { model = null; }
+      let stream = true;
+      try { const j = JSON.parse(body) as { model?: unknown; stream?: unknown }; model = (j.model as string | undefined) ?? null; stream = j.stream !== false; } catch { model = null; }
       letzte = { path: kind === "chat" ? "/v1/chat/completions" : "/v1/completions", body, model };
       unterwegs += 1;
       // `req.on("close")` feuert in neuerem Node nach dem Lesen des Bodys, nicht beim Verbindungsende —
@@ -237,8 +246,8 @@ async function startFakeLlm(): Promise<FakeLlm> {
       res.on("finish", () => { fertig += 1; });
       const los = (): void => {
         if (res.destroyed) return;
-        res.writeHead(200, { "Content-Type": "text/event-stream", ...CORS });
-        sende(res, kind);
+        if (stream) res.writeHead(200, { "Content-Type": "text/event-stream", ...CORS });
+        sende(res, kind, stream);
       };
       if (pause > 0) setTimeout(los, pause); else los();
     });
@@ -286,7 +295,7 @@ async function installFakeManager(cdp: Cdp, url: string): Promise<void> {
       on: () => () => {},
     };
     app.plugins.plugins[${q(MANAGER_ID)}] = { api };
-    app.plugins.plugins[${q(PLUGIN_ID)}].targetPromise = null;
+    app.plugins.plugins[${q(PLUGIN_ID)}].llm.invalidate();
     return { ok: true };
   `);
 }
@@ -298,13 +307,13 @@ async function removeFakeManager(cdp: Cdp): Promise<void> {
       delete window.__smokeVorherManager;
     }
     const p = app.plugins.plugins[${q(PLUGIN_ID)}];
-    if (p) p.targetPromise = null;
+    if (p) p.llm.invalidate();
     return { ok: true };
   `);
 }
 async function waehleModell(cdp: Cdp, model: string): Promise<void> {
   await setPluginSetting(cdp, PLUGIN_ID, "choice", { endpointId: "smoke", model });
-  await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].targetPromise = null; return { ok: true };`);
+  await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].llm.invalidate(); return { ok: true };`);
 }
 
 // ───────────────────────── Zustand herstellen ─────────────────────────
@@ -319,7 +328,7 @@ async function setzeEinstellungenZurueck(cdp: Cdp): Promise<void> {
     const p = app.plugins.plugins[${q(PLUGIN_ID)}];
     Object.assign(p.settings, ${JSON.stringify(f)});
     await p.saveSettings();
-    p.targetPromise = null;
+    p.llm.invalidate();
     return { ok: true };
   `);
 }
@@ -805,7 +814,7 @@ async function g15(cdp: Cdp, fake: FakeLlm): Promise<void> {
   const nachKey = dok.length - dok.indexOf("-----END RSA PRIVATE KEY-----") - "-----END RSA PRIVATE KEY-----".length;
   if (!(nachKey < 300 && 300 < nachKey + key.length)) { nichtGemessen("G15 Schluessel geschwaerzt", `Fixture gedriftet: Fenstergrenze liegt nicht im Schluessel (Text hinter dem Schluessel ${nachKey}, contextChars 300, Schluessel ${key.length})`); return; }
   await setPluginSetting(cdp, PLUGIN_ID, "contextChars", 300);
-  await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].targetPromise = null; return { ok: true };`);
+  await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].llm.invalidate(); return { ok: true };`);
   await oeffne(cdp, "Schluessel.md");
   const n0 = fake.chat() + fake.comp();
   f0 = fake.fertig();
@@ -898,6 +907,41 @@ async function g19(cdp: Cdp, fake: FakeLlm): Promise<void> {
   }
 }
 
+
+/** Laesst den ECHTEN Einstellungs-Tab des Plugins in einen losgeloesten Host im Hauptfenster zeichnen (die Einstellungen
+ *  selbst oeffnen in der Zweitinstanz als Pop-out, das ein DOM-Check hier nicht sieht) und liest die Struktur. */
+async function rendereVerbindung(cdp: Cdp): Promise<{ text: string; listAdd: number; collapsible: boolean; manager: boolean; tab: boolean }> {
+  return cdp.evaluate(`
+    const tab = (app.setting.pluginTabs ?? []).find((t) => t.id === ${q(PLUGIN_ID)});
+    const host = document.body.createDiv();
+    const alt = tab ? tab.containerEl : null;
+    if (tab) { tab.containerEl = host; tab.display(); }
+    await new Promise((r) => setTimeout(r, 1200));
+    const out = {
+      tab: !!tab,
+      text: host.textContent ?? "",
+      listAdd: host.querySelectorAll("input[placeholder*='endpoint' i]").length,
+      collapsible: !!host.querySelector(".okit-collapsible"),
+      manager: !!app.plugins.plugins[${q(MANAGER_ID)}],
+    };
+    if (tab) { tab.hide(); tab.containerEl = alt; }
+    host.remove();
+    return out;
+  `);
+}
+
+async function g20(cdp: Cdp, fake: FakeLlm): Promise<void> {
+  console.log("\nG20 · Einstellungen: mit Manager Quelle + Anfrage, ohne Manager der Kit-Hinweis und keine lokale Liste");
+  const mit = await rendereVerbindung(cdp);
+  await removeFakeManager(cdp);
+  let ohne: Awaited<ReturnType<typeof rendereVerbindung>>;
+  try { ohne = await rendereVerbindung(cdp); } finally { await installFakeManager(cdp, fake.url); }
+  const mitOk = mit.tab && mit.manager && mit.text.includes("Endpoints come from the LLM Endpoint Manager") && !mit.text.includes("local list") && mit.collapsible && mit.listAdd === 0;
+  const ohneOk = ohne.tab && !ohne.manager && ohne.text.includes("No LLM Endpoint Manager found") && ohne.listAdd === 0 && ohne.collapsible;
+  record("G20 Einstellungen", mitOk && ohneOk,
+    `mit Manager: Quellenzeile ${String(mit.text.includes("Endpoints come from the LLM Endpoint Manager"))}, Anfrage-Abschnitt ${String(mit.collapsible)}, Eingabefeld „weiterer Endpunkt“ ${mit.listAdd} || ohne Manager: Kit-Hinweis „No LLM Endpoint Manager found“ ${String(ohne.text.includes("No LLM Endpoint Manager found"))}, Eingabefeld „weiterer Endpunkt“ ${ohne.listAdd}, Anfrage-Abschnitt ${String(ohne.collapsible)}`);
+}
+
 // ───────────────────────── main ─────────────────────────
 
 /** Eine Gruppe von Pruefpunkten: wirft sie, werden ihre noch fehlenden Punkte als "nichts gemessen" mit dem
@@ -924,7 +968,7 @@ async function main(): Promise<void> {
   const port = portAus(argv);
   const vaultArg = argv.indexOf("--vault");
   const vaultFilter = vaultArg >= 0 ? argv[vaultArg + 1] : REPO_NAME;
-  const alleNamen = Array.from({ length: 19 }, (_, i) => `G${i + 1}`);
+  const alleNamen = Array.from({ length: 20 }, (_, i) => `G${i + 1}`);
   const warnungen: string[] = [];
   const fehler: string[] = [];
   let fake: FakeLlm | null = null;
@@ -976,6 +1020,7 @@ async function main(): Promise<void> {
     await gruppe(["G17"], async () => { await g17(c, f); await spur("G17"); });
     await gruppe(["G18"], async () => { await g18(c, f); await spur("G18"); });
     await gruppe(["G19"], async () => { await g19(c, f); await spur("G19"); });
+    await gruppe(["G20"], async () => { await g20(c, f); await spur("G20"); });
     // Vim zuletzt: das Umschalten von vimMode laesst im laufenden Renderer Vim-Zustand zurueck
     // (gemessen im ersten Lauf: ein Rest davon veraenderte in G10 den Notiztext).
     await gruppe(["G9"], async () => { await g9(c); });

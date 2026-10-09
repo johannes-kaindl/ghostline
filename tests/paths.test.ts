@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { completeParams, createFimPath, STOP } from "../src/llm/paths";
 import { createChatPath } from "../src/llm/chat-path";
-import { createChatClient, type SseTransport } from "../src/vendor/kit-obsidian/chat-client";
+import type { SseTransport } from "../src/vendor/kit-obsidian/chat-client";
+import type { LlmConnection, LlmResult } from "../src/vendor/kit-obsidian/llm-connection";
+import { buildChatMessages } from "../src/core/prompt";
 import { createFimClient } from "../src/llm/fim-client";
 import { fimTemplateFor } from "../src/core/fim-templates";
 
@@ -23,43 +25,52 @@ describe("completeParams", () => {
   });
 });
 
+/** Eine Verbindung, deren `complete` ein festes Ergebnis liefert (und die Aufrufe festhält). */
+function fakeLlm(result: Partial<LlmResult> & { ok: boolean }, tokens: string[] = []) {
+  const calls: Array<{ req: { messages?: readonly unknown[] }; h: { overrides?: Record<string, unknown>; signal?: AbortSignal } }> = [];
+  const llm: Pick<LlmConnection, "complete"> = {
+    async complete(req, h) {
+      calls.push({ req: req as never, h: h as never });
+      for (const t of tokens) h?.onToken?.(t);
+      return { facts: null, deviations: [], source: {} as never, ...result } as LlmResult;
+    },
+  };
+  return { llm, calls };
+}
+const timing = { startedAt: 1, firstChunkAt: 2, endedAt: 3 };
+const okResult = (content: string): Partial<LlmResult> & { ok: boolean } => ({ ok: true, content, reasoning: "", toolCalls: [], truncated: false, streamed: true, timing });
+const failResult = (kind: string, detail: string): Partial<LlmResult> & { ok: boolean } => ({ ok: false, kind, detail, partial: "", reasoning: "", timing } as never);
+
 describe("Chat-Weg", () => {
-  it("schickt Nachrichten, stop und Profilwerte an /v1/chat/completions", async () => {
-    const seen: { url?: string; body?: Record<string, unknown> } = {};
-    const clock = { now: () => Date.now(), setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms) as unknown as number, clearTimeout: (id: number) => clearTimeout(id) };
-    const chat = createChatClient({ transport: capture(['data: {"choices":[{"delta":{"content":"morgen"}}]}\n', "data: [DONE]\n"], seen), clock });
-    const r = await createChatPath(chat).request({ ctx, endpoint: { url: "http://h:1234" }, model: "m", params: { temperature: 0.2, max_tokens: 40 }, signal: new AbortController().signal, onText: () => {} });
-    expect(seen.url).toBe("http://h:1234/v1/chat/completions");
-    expect(seen.body?.stop).toEqual(STOP);
-    expect(seen.body?.temperature).toBe(0.2);
-    expect(r).toMatchObject({ ok: true, raw: "morgen" });
+  it("fragt die Verbindung mit den Chat-Nachrichten, stop je Aufruf und dem Abbruchsignal", async () => {
+    const { llm, calls } = fakeLlm(okResult("morgen"), ["mor", "gen"]);
+    const texts: string[] = [];
+    const signal = new AbortController().signal;
+    const r = await createChatPath(llm).request({ ctx, endpoint: { url: "http://h:1234" }, model: "m", params: { temperature: 0.2, max_tokens: 40 }, signal, onText: (t) => texts.push(t) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.req.messages).toEqual(buildChatMessages(ctx));
+    expect(calls[0]?.h.overrides).toEqual({ stop: STOP });
+    expect(calls[0]?.h.signal).toBe(signal);
+    expect(texts).toEqual(["mor", "morgen"]);
+    expect(r).toMatchObject({ ok: true, raw: "morgen", timing });
+  });
+  it("liefert die Tatsachen der Verbindung weiter, sonst baut er sie aus der Antwort", async () => {
+    const facts = { status: 200, content: "x", finishReason: "stop" };
+    const { llm } = fakeLlm({ ...okResult("x"), facts });
+    expect(await createChatPath(llm).request({ ctx, endpoint: { url: "u" }, model: "m", params: {}, signal: new AbortController().signal, onText: () => {} })).toMatchObject({ ok: true, facts });
+    const { llm: ohne } = fakeLlm({ ...okResult("y"), finishReason: "length" } as never);
+    expect(await createChatPath(ohne).request({ ctx, endpoint: { url: "u" }, model: "m", params: {}, signal: new AbortController().signal, onText: () => {} })).toMatchObject({ ok: true, facts: { status: 200, content: "y", finishReason: "length" } });
   });
 });
 
-describe("Chat-Weg: Fehlerarten und Denken", () => {
-  const clock = { now: () => Date.now(), setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms) as unknown as number, clearTimeout: (id: number) => clearTimeout(id) };
-  const run = (transport: SseTransport) => {
-    const texts: string[] = [];
-    const p = createChatPath(createChatClient({ transport, clock })).request({ ctx, endpoint: { url: "http://h:1234" }, model: "m", params: {}, signal: new AbortController().signal, onText: (t) => texts.push(t) });
-    return { p, texts };
-  };
-  it("overflow bleibt overflow", async () => {
-    const { p } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('{"error":{"message":"maximum context length exceeded"}}'); return 400; } });
-    const r = await p;
-    expect(r).toMatchObject({ ok: false, kind: "overflow" });
-    if (!r.ok) expect(r.detail).toContain("context length");
+describe("Chat-Weg: Fehlerarten", () => {
+  const run = (kind: string, detail: string) => createChatPath(fakeLlm(failResult(kind, detail)).llm).request({ ctx, endpoint: { url: "u" }, model: "m", params: {}, signal: new AbortController().signal, onText: () => {} });
+  it.each(["overflow", "truncated", "timeout", "network", "http", "aborted"])("%s bleibt %s und trägt den Detailtext", async (kind) => {
+    const r = await run(kind, "Servertext");
+    expect(r).toMatchObject({ ok: false, kind, detail: "Servertext" });
   });
-  it("truncated bleibt truncated", async () => {
-    const { p } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n'); onChunk("data: [DONE]\n"); return 200; } });
-    const r = await p;
-    expect(r).toMatchObject({ ok: false, kind: "truncated" });
-    if (!r.ok) expect(r.detail).not.toBe("");
-  });
-  it("Denken im Strom gelangt nicht in den Geistertext", async () => {
-    const { p, texts } = run({ async postStream(_u, _b, _h, onChunk) { onChunk('data: {"choices":[{"delta":{"content":"<think>grübel</think>morgen"}}]}\n'); onChunk("data: [DONE]\n"); return 200; } });
-    const r = await p;
-    expect(r).toMatchObject({ ok: true, raw: "morgen" });
-    expect(texts.join("|")).not.toContain("grübel");
+  it("kein Endpunkt wird zur Fehlerart other (die Session kennt nur die bekannten Arten)", async () => {
+    expect(await run("no-endpoint", "disabled")).toMatchObject({ ok: false, kind: "other", detail: "disabled" });
   });
 });
 

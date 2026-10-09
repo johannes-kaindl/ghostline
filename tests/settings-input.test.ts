@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import "../src/i18n/strings";
 import { setLang, t } from "../src/vendor/kit/i18n";
 import { createDebouncer, excludeDescription, parseBounded } from "../src/core/settings-input";
-import { deviationDetail } from "../src/obsidian/deviation-text";
 import { ghostCommandAvailable } from "../src/editor/ghost-command";
 import type { ClockPort } from "../src/vendor/kit-obsidian/clock";
 
@@ -53,21 +52,6 @@ describe("excludeDescription", () => {
     const bad = excludeDescription("Notes/\n**");
     expect(bad.startsWith(t("set.excludeDesc"))).toBe(true);
     expect(bad).toContain("Ignored lines");
-  });
-});
-
-describe("deviationDetail", () => {
-  it("zeigt in EN und DE nie die rohe Kennung", () => {
-    for (const lang of ["en", "de"] as const) {
-      setLang(lang);
-      for (const k of ["thinking-despite-off", "empty-by-budget", "family-mismatch", "family-detected", "rejected"] as const) {
-        const text = deviationDetail(k, "x");
-        expect(text).not.toBe(k);
-        if (k.includes("-")) expect(text).not.toContain(k);
-        expect(text).not.toMatch(/^request\./);
-      }
-    }
-    setLang("en");
   });
 });
 

@@ -1,16 +1,13 @@
 import { MarkdownView, Plugin, editorInfoField, getLanguage, type Editor } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import "./i18n/strings";
-import { pickLang, setLang, t } from "./vendor/kit/i18n";
-import { checkResponse, type FamilyId, type RequestSettings } from "./vendor/kit/sampling-profiles";
-import { resolveEndpointSource, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
-import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
-import { createChatClient } from "./vendor/kit-obsidian/chat-client";
-import { requestUrlTransport, transportFor, xhrSseTransport } from "./vendor/kit-obsidian/chat-transport";
-import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
-import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
+import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
+import { checkResponse, type FamilyId } from "./vendor/kit/sampling-profiles";
+import { onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
+import { requestUrlTransport, xhrSseTransport } from "./vendor/kit-obsidian/chat-transport";
+import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import { realClock } from "./vendor/kit-obsidian/clock";
-import { DEFAULT_SETTINGS, normalizeSettings, type GhostlineSettings } from "./core/settings";
+import { DEFAULT_SETTINGS, MAX_TOKENS, normalizeSettings, type GhostlineSettings } from "./core/settings";
 import { createExclusionCache } from "./core/exclusion";
 import { ghostCommandAvailable } from "./editor/ghost-command";
 import { ghostField } from "./editor/ghost-field";
@@ -21,7 +18,6 @@ import { createFimPath, type CompletionPath } from "./llm/paths";
 import { ghostViewPlugin, sessionOf, type SessionDeps, type Target } from "./obsidian/session";
 import { StatusItem, type StatusState } from "./obsidian/status-item";
 import { applyStatus, noEndpointPatch } from "./obsidian/status-model";
-import { deviationNotice } from "./obsidian/deviation-text";
 import { GhostlineSettingTab } from "./obsidian/settings-tab";
 
 function safeGetLanguage(): string | null { try { return getLanguage(); } catch { return null; } }
@@ -33,20 +29,13 @@ function viewOf(editor: Editor): EditorView | null {
 
 export default class GhostlinePlugin extends Plugin {
   settings: GhostlineSettings = DEFAULT_SETTINGS;
-  source: EndpointSourceResult | null = null;
-  private targetPromise: Promise<Target | null> | null = null;
-  /** Zählt Auflösungen; das Ergebnis einer überholten Auflösung darf `source` nicht überschreiben. */
-  private targetGen = 0;
+  /** Die LLM-Anbindung (nur über den LLM Endpoint Manager): Auflösung, Parameter, Client, Prüfung der Antwort, Settings-Abschnitte. */
+  llm!: LlmConnection;
   private status!: StatusItem;
   private statusState: StatusState = { enabled: true, kind: "ok" };
   private exclusions = createExclusionCache(() => this.settings.excludePatterns, (p) => {
     const f = this.app.vault.getFileByPath(p);
     return f ? this.app.metadataCache.getFileCache(f)?.frontmatter : undefined;
-  });
-  requestSession: RequestSession = createRequestSession({
-    message: (d) => deviationNotice(d),
-    // Eigener Kanal: die Statusleiste, nie ein `new Notice` (Plan, Global Constraints).
-    notice: (text) => { this.setStatus({ kind: "warning", reason: text }); },
   });
 
   async onload(): Promise<void> {
@@ -54,6 +43,28 @@ export default class GhostlinePlugin extends Plugin {
     this.settings = normalizeSettings(await this.loadData());
     this.statusState.enabled = this.settings.enabled;
     this.exclusions.invalidate();
+
+    this.llm = createLlmConnection({
+      app: this.app,
+      pluginId: this.manifest.id,
+      caller: "ghostline",
+      capability: "chat",
+      managerOnly: true,
+      mode: "complete",
+      maxTokens: MAX_TOKENS,
+      // Inline-Vervollständigung braucht eine schnelle Antwort (ausdrücklich, nicht der JIT-Default).
+      timeouts: { idleMs: 15_000, firstChunkMs: 15_000 },
+      lang: () => getLang(),
+      // Eigener Kanal: die Statusleiste, nie ein `new Notice` (Plan, Global Constraints).
+      notice: (text) => { this.setStatus({ kind: "warning", reason: text }); },
+      getSettings: () => ({ endpoints: [], choice: this.settings.choice, request: this.settings.request }),
+      // Erst in die Settings schreiben, dann speichern; `endpoints` gibt es hier nie.
+      persist: (patch) => {
+        if (patch.choice !== undefined) this.settings.choice = patch.choice;
+        if (patch.request !== undefined) this.settings.request = patch.request;
+        return this.saveData(this.settings);
+      },
+    });
 
     this.status = new StatusItem(this.addStatusBarItem(), () => { void this.onStatusClick(); });
     this.status.render(this.statusState);
@@ -63,12 +74,8 @@ export default class GhostlinePlugin extends Plugin {
       clock: realClock,
       settings: () => this.settings,
       target: () => this.target(),
-      invalidateTarget: () => { this.invalidateTarget(); },
-      paths: (kind, template): CompletionPath => {
-        if (kind === "fim" && template) return createFimPath(fim, template);
-        const choice = transportFor({ transport: this.source?.transport ?? "http" }, { http: xhrSseTransport, httpFallback: requestUrlTransport });
-        return createChatPath(createChatClient({ transport: choice.primary, ...(choice.fallback ? { fallbackTransport: choice.fallback } : {}), idleTimeoutMs: 15_000, firstChunkTimeoutMs: 15_000 }));
-      },
+      invalidateTarget: () => { this.llm.invalidate(); },
+      paths: (kind, template): CompletionPath => (kind === "fim" && template ? createFimPath(fim, template) : createChatPath(this.llm)),
       fileInfo: (view) => {
         const file = view.state.field(editorInfoField, false)?.file;
         return file ? { path: file.path, title: file.basename } : null;
@@ -89,11 +96,12 @@ export default class GhostlinePlugin extends Plugin {
         noEndpoint: () => this.setStatus(noEndpointPatch()),
       },
       // `facts` stammt aus der Modellantwort zur Notiz: nur auswerten, nie speichern oder loggen.
-      onFacts: (facts, family: FamilyId | null) => {
-        this.requestSession.report(checkResponse({ family, thinking: this.settings.request.thinking.complete ?? "off" }, facts));
+      // Nur der FIM-Pfad: der Chat-Pfad meldet über die Verbindung selbst (eine Sitzung, keine Doppelmeldung).
+      onFacts: (facts, family: FamilyId | null, kind) => {
+        if (kind === "fim") this.llm.session.report(checkResponse({ family, thinking: this.settings.request.thinking.complete ?? "off" }, facts));
       },
       // Nur Parameter (Sampling-Felder und Stop-Liste), nie Notiztext oder Prompt.
-      onRequest: (params) => { this.requestSession.recordRequest(params); },
+      onRequest: (params, kind) => { if (kind === "fim") this.llm.session.recordRequest(params); },
       health: { until: 0, empty: 0 },
     };
 
@@ -123,54 +131,29 @@ export default class GhostlinePlugin extends Plugin {
     editorCmd("request-now", t("cmd.requestNow"), (v) => { sessionOf(v)?.requestNow(); return true; });
     this.addCommand({ id: "toggle", name: t("cmd.toggle"), callback: () => { void this.toggleEnabled(); } });
 
-    this.addSettingTab(new GhostlineSettingTab(this.app, this));
+    this.addSettingTab(new GhostlineSettingTab(this.app, this, this.llm));
 
     // Der Cache merkt sich auch `false`, solange die Metadaten einer Notiz noch nicht geladen sind.
     this.registerEvent(this.app.metadataCache.on("changed", () => this.exclusions.invalidate()));
     this.registerEvent(this.app.metadataCache.on("resolved", () => this.exclusions.invalidate()));
     this.registerEvent(this.app.vault.on("rename", () => this.exclusions.invalidate()));
     this.app.workspace.onLayoutReady(() => {
-      this.register(onEndpointManagerChanged(this.app, () => { this.invalidateTarget(); }));
+      this.register(onEndpointManagerChanged(this.app, () => { this.llm.invalidate(); }));
     });
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.exclusions.invalidate();
-    this.invalidateTarget();
   }
 
-  private invalidateTarget(): void { this.targetPromise = null; this.targetGen++; }
-
-  async saveRequestSettings(next: RequestSettings): Promise<void> { this.settings.request = next; await this.saveSettings(); }
-
-  requestSectionState(): RequestSectionState {
-    const s = this.source;
-    return {
-      family: s?.family ?? null, familySource: s?.familySource ?? "none",
-      ...(s?.displayFamily !== undefined ? { displayFamily: s.displayFamily } : {}),
-      backend: s?.backend ?? "unknown", backendSource: s?.backendSource ?? "none",
-      model: s?.model ?? "", sentModel: s?.sentModel ?? "",
-      ...(s?.defaultModel !== undefined ? { defaultModel: s.defaultModel } : {}),
-    };
-  }
-
-  /** Aufgelöster Endpunkt, gemerkt bis zur nächsten Änderung (Manager-Ereignis, Settings,
-   *  Fehler). Die Manager-API selbst wird bei jeder Auflösung frisch gelesen (REGISTRY). */
-  target(): Promise<Target | null> {
-    if (this.targetPromise) return this.targetPromise;
-    const gen = ++this.targetGen;
-    this.targetPromise = resolveEndpointSource({
-      manager: findEndpointManager(this.app), local: [], capability: "chat",
-      choice: this.settings.choice, caller: "ghostline",
-    }, async () => false).then((r) => {
-      if (gen === this.targetGen) this.source = r;
+  /** Aufgelöster Endpunkt für die Anfrage; die Verbindung löst den Manager bei jedem Aufruf frisch auf. */
+  async target(): Promise<Target | null> {
+    try {
+      const r = await this.llm.resolve();
       if (!r.config || !r.sentModel) return null;
       return { endpoint: r.config, model: r.sentModel, family: r.family, backend: r.backend };
-    }).catch(() => null);
-    const p = this.targetPromise;
-    void p.then((v) => { if (v === null && this.targetPromise === p) this.targetPromise = null; });
-    return p;
+    } catch { return null; }
   }
 
   private setStatus(patch: Partial<StatusState>): void {

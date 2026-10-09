@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import "../src/i18n/strings";
 import { applyStatus, noEndpointPatch } from "../src/obsidian/status-model";
-import { deviationNotice, deviationDetail } from "../src/obsidian/deviation-text";
 import { t } from "../src/vendor/kit/i18n";
 
 describe("applyStatus", () => {
@@ -32,12 +31,5 @@ describe("applyStatus", () => {
   });
   it("idle setzt checking auf ok zurück und lässt andere Zustände stehen", () => {
     expect(applyStatus({ enabled: true, kind: "checking" }, { kind: "ok" }, true).kind).toBe("ok");
-  });
-});
-
-describe("deviationNotice", () => {
-  it("nennt Abweichung und Verweis auf die Einstellungen", () => {
-    expect(deviationNotice({ kind: "empty-by-budget", affectsResult: true })).toContain(t("request.dev.seeSettings"));
-    expect(deviationDetail("rejected", "bad")).toContain("bad");
   });
 });
