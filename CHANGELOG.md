@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-09
+
 ### Changed
 
 - The chat request now runs on the shared obsidian-kit connection: endpoint resolution, request parameters, the check of every answer and the **Request** section come from one place. The Settings tab shows endpoint, model and **Request** (collapsed by default) in one block under **Endpoint**.
