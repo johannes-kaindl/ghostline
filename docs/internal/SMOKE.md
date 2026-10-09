@@ -1,6 +1,6 @@
 # GUI-Smoke Ghostline
 
-Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G19 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9363, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Ein Fake-LLM-Server und ein Fake-Manager leben im Treiber, es fließt kein echter Schlüssel und keine echte URL.
+Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G20 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9363, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Ein Fake-LLM-Server und ein Fake-Manager leben im Treiber, es fließt kein echter Schlüssel und keine echte URL.
 
 Erwartete Bilanz: `Smoke 19 gruen · 0 rot · 0 uebersprungen · 0 nichts gemessen · von 19 Pruefpunkten`. DOM-Prüfungen sind kein Layout-Beweis: wie die Statusleiste aussieht, zeigt kein Punkt.
 
@@ -25,6 +25,7 @@ Erwartete Bilanz: `Smoke 19 gruen · 0 rot · 0 uebersprungen · 0 nichts gemess
 | G17 | Kein Vorschlag im leeren Listenpunkt (`Liste.md`, Zeile `- `), nach der Ruhe wirklich getippt | Ghost null, Fake-Zähler steigt nicht, ein Zeichen getippt; Positivkontrolle `- Erster Punkt ` zeigt einen Ghost |
 | G18 | Tab-Kette: nach der Übernahme fragt das Plugin ohne Tastendruck weiter, Tab nimmt den zweiten Vorschlag | Fake antwortet `bis zum Meer.` und `Dann baden wir.`; genau eine Kettenanfrage, Zeile endet auf `bis zum Meer. Dann baden wir.`, kein Ghost |
 | G19 | Kein Endpunkt (Fake-Manager entfernt) | `is-warning` ohne `aria-pressed`; echter Klick ruft `app.setting.open` auf und der aktive Tab ist `ghostline` (die Einstellungen öffnen in der Zweitinstanz als Pop-out, ein DOM-Check im Hauptfenster sähe sie nicht), `enabled` bleibt an, kein `is-off`, keine Anfrage |
+| G20 | Einstellungen: der echte Tab zeichnet Quelle und Anfrage-Abschnitt der Kit-Verbindung in einen losgelösten Host | Mit Manager: Quellenzeile, Anfrage-Abschnitt, keine lokale Liste und kein Text „local list“; ohne Manager: Kit-Hinweis „No LLM Endpoint Manager found“, kein Eingabefeld für weitere Endpunkte |
 
 ## Verhalten des Treibers
 

@@ -9,17 +9,17 @@ Zuständigkeit: Ghostline besitzt die Zeilenvervollständigung im Editor. Endpun
 ## Architecture principles
 
 - `src/core/` ist rein: weder `obsidian` noch `@codemirror/*` (bewacht von `npm run check:pure`). Dort liegen Kontext, Prompt, Nachbearbeitung, Auslöser, Ausschluss, Settings-Modell.
-- Kit-Code liegt vendored unter `src/vendor/` und `tests/vendor/` (Konfiguration `tools/kit-sync.json`, Aufruf `bash tools/sync-kit.sh`, Prüfung mit `--check`); nie von Hand editiert, Pins nur in der Konfiguration. Aktuell obsidian-kit 0.48.1 und code-kit 0.11.0.
+- Kit-Code liegt vendored unter `src/vendor/` und `tests/vendor/` (Konfiguration `tools/kit-sync.json`, Aufruf `bash tools/sync-kit.sh`, Prüfung mit `--check`); nie von Hand editiert, Pins nur in der Konfiguration. Aktuell obsidian-kit 0.51.2 und code-kit 0.15.0 (alle Module auf derselben Ref).
 - Settings gehen ausschließlich durch `normalizeSettings` (`src/core/settings.ts`): Whitelist, Zahlen geklemmt, nie eine URL oder ein Schlüssel in `data.json`.
 - Endpunkt, Token und Modell-Liste kommen vom `llm-endpoint-manager` über das Kit-Modul `endpoint-source`; Schlüssel liegen im Obsidian-Schlüsselbund. Grund für `minAppVersion` 1.11.4: das Kit-Modul `secrets` braucht `app.secretStorage` (Lint-Regel `no-unsupported-api`); Master hat das am 2026-10-03 bestätigt, der Plan nannte 1.8.7.
-- Sampling schreibt das Plugin nie fest: `completeParams` (`src/llm/paths.ts`) löst die Werte aus der Kit-Tabelle `sampling-profiles`, Modus `complete`. Keine feste Temperatur im Plugin-Code.
+- Sampling schreibt das Plugin nie fest: `completeParams` (`src/llm/paths.ts`) löst die FIM-Werte aus der Kit-Tabelle `sampling-profiles`, Modus `complete`; der Chat-Pfad bekommt sie von der Kit-Verbindung (`createLlmConnection`, `managerOnly`, `llm.complete`). Keine feste Temperatur im Plugin-Code. Der FIM-Pfad meldet über `llm.session` (`recordRequest`, `report`), der Chat-Pfad über die Verbindung selbst, damit es eine Sitzung gibt.
 - Zwei Anfragewege hinter einer Schnittstelle (`CompletionPath`): Chat über den Kit-Chat-Client, FIM über den eigenen schmalen Client `src/llm/fim-client.ts` (Kit-Kandidat ab dem zweiten Konsumenten). FIM gibt es nur für Familien mit gemessenem Eintrag in `FIM_TEMPLATES` (aktuell Qwen2.5-Coder).
 - Die Session erzwingt die Gesamtfrist je Anfrage selbst (`REQUEST_DEADLINE_MS`), weil der FIM-Client keinen Leerlauf-Timeout kennt.
 
 ## Commands
 
 - `npm run gate` — lint, typecheck (src, test, scripts), test, check:pure, build; muss 0 Fehler und 0 Warnungen liefern. Vor jedem Commit, mit `&&` verkettet.
-- `npm run smoke:gui -- --port <n>` — GUI-Smoke G1–G16 gegen eine Zweitinstanz von Obsidian. Rezept (Profil, Port, Lock, Restricted Mode, Vertrauensdialog, `--setup` für den Staging-Vault) steht im Kopfkommentar von `scripts/gui-smoke.ts`; Prüfpunkte in `docs/internal/SMOKE.md`. Je Messlauf ein frischer Obsidian-Prozess, Lock für den eigenen Port, `release` direkt nach dem Lauf.
+- `npm run smoke:gui -- --port <n>` — GUI-Smoke G1–G20 gegen eine Zweitinstanz von Obsidian. Rezept (Profil, Port, Lock, Restricted Mode, Vertrauensdialog, `--setup` für den Staging-Vault) steht im Kopfkommentar von `scripts/gui-smoke.ts`; Prüfpunkte in `docs/internal/SMOKE.md`. Je Messlauf ein frischer Obsidian-Prozess, Lock für den eigenen Port, `release` direkt nach dem Lauf.
 - `npm run latency -- --endpoint <url> --models a,b --runs 5` — Latenzmessung (`scripts/latency.ts`, Spec § 9.5). **Nur nach Absprache mit dem Master**: JIT in LM Studio lädt Modelle und verdrängt die anderer Sessions. Nie im Gate, nie von Tests aufgerufen; die reinen Teile (`scripts/latency-lib.ts`) prüft `tests/latency-lib.test.ts`.
 - `npm run deploy` — baut und kopiert nach `$OBSIDIAN_PLUGIN_DIR`.
 - `npm run release` — delegiert an `../tools/release/`; fährt der Master nach Freigabe durch Johannes.
