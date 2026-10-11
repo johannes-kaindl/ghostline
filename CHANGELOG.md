@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-10-11
+
 ### Changed
 
 - Kit 0.53.0 / code-kit 0.21.0. The masking of secrets before a request catches more `Bearer` tokens (eight characters or more, any case, `=` allowed in the token); prose such as "Bearer authentication" near the cursor is sent as `Bearer [redacted-token]`.
