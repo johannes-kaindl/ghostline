@@ -939,7 +939,7 @@ async function g20(cdp: Cdp, fake: FakeLlm): Promise<void> {
   const mitOk = mit.tab && mit.manager && mit.text.includes("Endpoints come from the LLM Endpoint Manager") && !mit.text.includes("local list") && mit.collapsible && mit.listAdd === 0;
   const ohneOk = ohne.tab && !ohne.manager && ohne.text.includes("No LLM Endpoint Manager found") && ohne.listAdd === 0 && ohne.collapsible;
   record("G20 Einstellungen", mitOk && ohneOk,
-    `mit Manager: Quellenzeile ${String(mit.text.includes("Endpoints come from the LLM Endpoint Manager"))}, Anfrage-Abschnitt ${String(mit.collapsible)}, Eingabefeld „weiterer Endpunkt“ ${mit.listAdd} || ohne Manager: Kit-Hinweis „No LLM Endpoint Manager found“ ${String(ohne.text.includes("No LLM Endpoint Manager found"))}, Eingabefeld „weiterer Endpunkt“ ${ohne.listAdd}, Anfrage-Abschnitt ${String(ohne.collapsible)}`);
+    `mit Manager: Quellenzeile ${String(mit.text.includes("Endpoints come from the LLM Endpoint Manager"))}, Anfrage-Abschnitt ${String(mit.collapsible)}, Eingabefeld „weiterer Endpunkt“ ${mit.listAdd} || ohne Manager: Kit-Hinweis „No LLM Endpoint Manager found“ ${String(ohne.text.includes("No LLM Endpoint Manager found"))}, Eingabefeld „weiterer Endpunkt“ ${ohne.listAdd}, Anfrage-Abschnitt ${String(ohne.collapsible)}${mitOk && ohneOk ? "" : ` || Text mit: ${JSON.stringify(mit.text.slice(0, 260))} ohne: ${JSON.stringify(ohne.text.slice(0, 260))}`}`);
 }
 
 // ───────────────────────── main ─────────────────────────
