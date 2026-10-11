@@ -51,3 +51,8 @@ Befunde und Entscheidungen stehen im Cockpit `25_Coding/ghostline/`; hier nur, w
 ## Abweichungen von der Leitkonvention
 
 - UI-STANDARD §5 (Settings über `mergeSettings`): stattdessen `normalizeSettings` mit Whitelist, weil `mergeSettings` Defaults auffüllt, aber Fremdfelder nicht verwirft; die Whitelist ist die Datenschutz-Zusage aus Spec § 8.1. gilt-solange: mergeSettings keine Whitelist kennt
+
+## UI-Abweichungen
+
+- **stream-area** — Grund: Teilantworten erscheinen als CM6-Ghost-Text am Cursor (Streaming-Antwortbereich laut UI-STANDARD §8 trägt Reasoning-Details, Tail, Phasenzeile, Abbruchknopf und Scroll-Folgen), die es in einem Editor-Ghost-Text nicht gibt; Abbruch ist Tippen oder Escape.
+  — gilt-solange: `src/editor/ghost-field.ts` enthaelt `class GhostWidget extends WidgetType`
