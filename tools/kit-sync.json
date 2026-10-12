@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.53.0"
+      "ref": "0.56.0"
     },
     "code-kit": {
-      "ref": "0.21.0"
+      "ref": "0.23.0"
     }
   },
   "targets": [
@@ -30,7 +30,9 @@
         "backend-probe",
         "capabilities",
         "redact",
-        "secrets"
+        "secrets",
+        "embeddings-client",
+        "model-context"
       ]
     },
     {
@@ -87,7 +89,10 @@
         "endpoint-list",
         "llm-connection",
         "llm-connection-strings",
-        "backend-probe"
+        "backend-probe",
+        "endpoint-plumbing",
+        "embedding-connection",
+        "endpoint-status-text"
       ],
       "rewrite": [
         [
