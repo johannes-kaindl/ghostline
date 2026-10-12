@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
-- Vendored `obsidian-kit` 0.59.0 (was 0.56.0) and `code-kit` 0.24.0 (was 0.23.0).
+- Vendored `obsidian-kit` 0.59.1 (was 0.56.0) and `code-kit` 0.24.0 (was 0.23.0).
 - Settings, "Request" section: for an endpoint whose model family is not known yet it now reads "not detected yet" instead of "unknown", with a hint that this is normal for a freshly added endpoint and that the LLM Endpoint Manager keeps family and backend per model; the sampling fields read "not sent yet — waits for the model family". Nothing changes in what is sent.
 - Nothing else is visible: the kit releases 0.56.1, 0.56.2, 0.57.0 and 0.58.0 and code-kit 0.24.0 add build and test helpers, an embedding-row option and a shortcut-failure helper that this plugin does not use in a visible way.
 
