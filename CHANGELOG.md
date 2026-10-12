@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-10-12
+
 ### Changed
 
 - Kit 0.56.0 / code-kit 0.23.0 in one step (from 0.53.0 / 0.21.0). The check of every model answer (`checkResponse`) removes a `<think>` block in linear time: an answer with 50 000 unclosed `<think>` took seconds before and takes under a millisecond now. Nothing else changes on screen: the endpoint comes from the LLM Endpoint Manager, so the new context-length line and the "— (server picks)" option of the kit's endpoint list (only drawn for a local list) do not appear in this plugin's settings.
