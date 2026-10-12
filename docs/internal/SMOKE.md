@@ -1,6 +1,6 @@
 # GUI-Smoke Ghostline
 
-Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G20 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9363, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Ein Fake-LLM-Server und ein Fake-Manager leben im Treiber, es fließt kein echter Schlüssel und keine echte URL.
+Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G20 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9396, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Ein Fake-LLM-Server und ein Fake-Manager leben im Treiber, es fließt kein echter Schlüssel und keine echte URL.
 
 Erwartete Bilanz: `Smoke 19 gruen · 0 rot · 0 uebersprungen · 0 nichts gemessen · von 19 Pruefpunkten`. DOM-Prüfungen sind kein Layout-Beweis: wie die Statusleiste aussieht, zeigt kein Punkt.
 
