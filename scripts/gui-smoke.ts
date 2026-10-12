@@ -5,23 +5,26 @@
  *
  * ## Zweitinstanz (der richtige Ort fuer diesen Lauf — eigenes Profil, eigener Port)
  *
- * Der Port ist PFLICHT (`--port <n>`, dokumentierter Wert dieses Rezepts: 9363); der Treiber hat keinen Default.
+ * Der Port ist PFLICHT (`--port <n>`, dokumentierter Wert dieses Rezepts: 9396); der Treiber hat keinen Default.
  * Reihenfolge laut obsidian-plugins/AGENTS.md § Staging-Vaults (a)-(c):
  *
  *   echo "$STAGING_VAULTS_DIR"                                          # muss gesetzt sein (~/.zshenv)
  *   UD=/tmp/obs-test-ghostline; mkdir -p "$UD"
- *   lsof -nP -iTCP:9363 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
+ *   lsof -nP -iTCP:9396 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
  *   pgrep -f "user-data-dir=$UD" && echo "Profil belegt — $UD-w13 nehmen"
  *   npm run build && npm run smoke:gui -- --setup                       # Vault aus fixtures/vault/
  *   # (a) aktuelle Version statt gebuendelter (nachsehen: ls ~/Library/Application\ Support/obsidian/*.asar)
  *   cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/
  *   # Vault registrieren (Obsidian liest obsidian.json nur beim Start):
- *   node -e 'const p=process.env.STAGING_VAULTS_DIR+"/ghostline";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{ghostline:{path:p,ts:Date.now(),open:true}}}))' "$UD"
- *   /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9363 &
+ *   node -e 'const p=process.env.STAGING_VAULTS_DIR+"/ghostline";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{ghostline:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
+ *   /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9396 &
  *   # Prozess-PID merken: beendet wird NUR sie, nie pkill/killall. Je Messlauf frischer Prozess.
- *   python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label ghostline --intent "GUI-Smoke Zweitinstanz :9363" --exclusive focus --port 9363 --ttl 300
- *   npm run smoke:gui -- --port 9363     # (b) Restricted Mode: setEnable(true), (c) Vertrauensdialog: macht der Treiber
+ *   python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label ghostline --intent "GUI-Smoke Zweitinstanz :9396" --exclusive focus --port 9396 --ttl 300
+ *   npm run smoke:gui -- --port 9396     # (b) Restricted Mode und (c) Vertrauensdialog: `bereiteInstanzVor` (Bruecke)
  *   python3 ~/.claude/hooks/obsidian-cdp-lock.py release
+ *
+ * Bilanz in vier Zustaenden (CORE-TEST-19, `createBilanz`): Nenner ist `PUNKTE` (G1-G20); ein nie aufgezeichneter
+ * Punkt zaehlt als „nichts gemessen". Exit 1 bei Rot oder nichts gemessen, 2 bei Abbruch.
  *
  * Der erste Lauf nach dem Anlegen eines Profils ist ein Aufwaermlauf und zaehlt nicht.
  * Ein Treiber setzt jeden Zustand, den er anlegt, VOR dem Lauf zurueck (Notizen, Einstellungen,
@@ -38,7 +41,8 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, clickReal, closeExtraLeaves, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, bereiteInstanzVor, clickReal, closeExtraLeaves, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
 import { ERROR_PAUSE_MS, normalizeSettings } from "../src/core/settings.js";
 import { buildVault, requireEigenerBuild, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
 
@@ -53,21 +57,47 @@ const CHAT_MODEL = "smoke-chat";
 const FIM_MODEL = "qwen2.5-coder-smoke";
 const REDACT_MARK = "[redacted-private-key]";
 
-type Zustand = "gruen" | "rot" | "uebersprungen" | "nichts gemessen";
-interface Check { name: string; zustand: Zustand; detail: string }
-const checks: Check[] = [];
+/** Soll-Liste aller Pruefpunkte (der Nenner der Bilanz). */
+const PUNKTE = [
+  "G1 Vorschlag erscheint",
+  "G2 Tab uebernimmt",
+  "G3 Pfeil rechts nimmt ein Wort",
+  "G4 Escape verwirft",
+  "G5 Durchtippen",
+  "G6 Tippen bricht ab",
+  "G7 Tab rueckt ohne Vorschlag ein",
+  "G8 Keine Vorschlaege in Code, Frontmatter, Ordner, ghostline: false",
+  "G9 Vim",
+  "G10 Eigenes Hotkey ohne Vorschlag",
+  "G11 Statusleiste",
+  "G12 Nicht erreichbar",
+  "G13 Anfrageweg automatisch",
+  "G14 Modellwahl schlaegt Default",
+  "G15 Schluessel geschwaerzt",
+  "G16 data.json ohne Schluessel",
+  "G17 Kein Vorschlag im leeren Listenpunkt",
+  "G18 Tab-Kette",
+  "G19 Kein Endpunkt",
+  "G20 Einstellungen",
+] as const;
 /** Zeitnotizen der Ghost-Wartefunktionen (Zeit bis zum ersten Vorschlag, Ankunft der Anfrage am Fake), die der naechste Pruefpunkt in seinen Detailtext uebernimmt. */
 let zeitNotizen: string[] = [];
 let triggerAt = 0;
-function record(name: string, passed: boolean, detail: string): void {
-  if (zeitNotizen.length) { detail = `${detail} || Zeit: ${zeitNotizen.join(" ; ")}`; zeitNotizen = []; }
-  checks.push({ name, zustand: passed ? "gruen" : "rot", detail });
-  console.log(`${passed ? "  ✓" : "  ✗"} ${name} — ${detail}`);
-}
-function nichtGemessen(name: string, grund: string): void {
-  checks.push({ name, zustand: "nichts gemessen", detail: grund });
-  console.log(`  ? ${name} — nichts gemessen: ${grund}`);
-}
+const { record, unmeasured, abschluss } = createBilanz({
+  punkte: PUNKTE,
+  onRecord: (p) => {
+    if ((p.zustand !== "gruen" && p.zustand !== "rot") || !zeitNotizen.length) return;
+    const z = `|| Zeit: ${zeitNotizen.join(" ; ")}`;
+    zeitNotizen = [];
+    return z;
+  },
+});
+/** Der volle Punktname zu einer Gruppenkennung („G3“). */
+const punktName = (gruppeId: string): (typeof PUNKTE)[number] => {
+  const n = PUNKTE.find((p) => p === gruppeId || p.startsWith(`${gruppeId} `));
+  if (!n) throw new Error(`Unbekannte Gruppe ${gruppeId}`);
+  return n;
+};
 
 const q = (s: string): string => JSON.stringify(s);
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -445,32 +475,16 @@ function setupVault(): void {
     console.log("  · Plugin-Einstellungen aus fixtures/vault/plugin-data.json gesetzt");
   }
   console.log("\nDen Vault in der Zweitinstanz registrieren (Rezept im Dateikopf) und dann:");
-  console.log("  npm run smoke:gui -- --port 9363");
+  console.log("  npm run smoke:gui -- --port 9396");
 }
 
 async function grundlage(cdp: Cdp, vaultName: string): Promise<void> {
   console.log("\nGrundlage");
-  let geladen = (await cdp.evaluate<{ g: boolean }>(`return { g: Boolean(app.plugins.plugins[${q(PLUGIN_ID)}]) };`)).g;
-  if (!geladen) {
-    // (c) Vertrauensdialog eines frischen Profils, (b) Restricted Mode — in dieser Reihenfolge.
-    const vertraut = await cdp.evaluate<{ s: string }>(`
-      const btn = [...document.querySelectorAll(".modal-container button")].find((b) => /trust|vertrau/i.test(b.textContent));
-      if (btn) { btn.click(); await new Promise((r) => setTimeout(r, 1200)); return { s: "Vertrauensdialog bestaetigt" }; }
-      return { s: "kein Vertrauensdialog" };
-    `);
-    const frei = await cdp.evaluate<{ s: string }>(`
-      try {
-        if (app.plugins.setEnable) await app.plugins.setEnable(true);
-        await app.plugins.enablePluginAndSave(${q(PLUGIN_ID)});
-        await new Promise((r) => setTimeout(r, 1500));
-        return { s: app.plugins.plugins[${q(PLUGIN_ID)}] ? "freigeschaltet" : "Aufruf ohne Wirkung" };
-      } catch (e) { return { s: "Fehler: " + (e && e.message ? e.message : String(e)) }; }
-    `);
-    geladen = (await cdp.evaluate<{ g: boolean }>(`return { g: Boolean(app.plugins.plugins[${q(PLUGIN_ID)}]) };`)).g;
-    console.log(`  Plugin war nicht geladen: ${vertraut.s}, ${frei.s}`);
-  }
-  if (!geladen) throw new Error(`Plugin ${PLUGIN_ID} laedt nicht (Vault ${vaultName}) — ohne es ist jeder Punkt gegenstandslos.`);
-  console.log(`  Plugin geladen, Vault ${vaultName}`);
+  // (c) Vertrauensdialog eines frischen Profils, (b) Restricted Mode: zentrale Bruecke.
+  const instanz = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: REPO_NAME, sprache: "en" });
+  const geladen = (await cdp.evaluate<{ g: boolean }>(`return { g: Boolean(app.plugins.plugins[${q(PLUGIN_ID)}]) };`)).g;
+  if (!geladen) throw new Error(`Plugin ${PLUGIN_ID} laedt nicht (Vault ${vaultName}) — ${instanz.hinweis}. Ohne es ist jeder Punkt gegenstandslos.`);
+  console.log(`  Plugin geladen, Vault ${vaultName} — ${instanz.hinweis}`);
 }
 
 // ───────────────────────── G15: Schwaerzung vor Fensterschnitt ─────────────────────────
@@ -524,7 +538,7 @@ function g16(dataJsonPfad: string): void {
   const erlaubt = Object.keys(normalizeSettings({}));
   const text = existsSync(dataJsonPfad) ? readFileSync(dataJsonPfad, "utf8") : null;
   const b = pruefeDataJson(text, erlaubt, DATA_JSON_ERWARTET);
-  if (!b.lesbar || b.fehlend.length) { nichtGemessen("G16 data.json ohne Schluessel", `data.json ${b.lesbar ? "lesbar, aber Erwartungsschluessel fehlen: " + b.fehlend.join(",") : "fehlt oder ist unlesbar"} (${dataJsonPfad}) — nichts zu pruefen`); return; }
+  if (!b.lesbar || b.fehlend.length) { unmeasured("G16 data.json ohne Schluessel", `data.json ${b.lesbar ? "lesbar, aber Erwartungsschluessel fehlen: " + b.fehlend.join(",") : "fehlt oder ist unlesbar"} (${dataJsonPfad}) — nichts zu pruefen`); return; }
   record("G16 data.json ohne Schluessel", b.fremd.length === 0, `Schluessel in data.json: [${b.keys.join(", ")}]; ausserhalb der normalizeSettings-Whitelist: [${b.fremd.join(", ")}]; Erwartungsschluessel ${DATA_JSON_ERWARTET.join("/")} vorhanden`);
 }
 
@@ -812,7 +826,7 @@ async function g15(cdp: Cdp, fake: FakeLlm): Promise<void> {
   const dok = original("Schluessel.md");
   const key = dok.slice(dok.indexOf("-----BEGIN"), dok.indexOf("-----END") + "-----END RSA PRIVATE KEY-----".length);
   const nachKey = dok.length - dok.indexOf("-----END RSA PRIVATE KEY-----") - "-----END RSA PRIVATE KEY-----".length;
-  if (!(nachKey < 300 && 300 < nachKey + key.length)) { nichtGemessen("G15 Schluessel geschwaerzt", `Fixture gedriftet: Fenstergrenze liegt nicht im Schluessel (Text hinter dem Schluessel ${nachKey}, contextChars 300, Schluessel ${key.length})`); return; }
+  if (!(nachKey < 300 && 300 < nachKey + key.length)) { unmeasured("G15 Schluessel geschwaerzt", `Fixture gedriftet: Fenstergrenze liegt nicht im Schluessel (Text hinter dem Schluessel ${nachKey}, contextChars 300, Schluessel ${key.length})`); return; }
   await setPluginSetting(cdp, PLUGIN_ID, "contextChars", 300);
   await cdp.evaluate(`app.plugins.plugins[${q(PLUGIN_ID)}].llm.invalidate(); return { ok: true };`);
   await oeffne(cdp, "Schluessel.md");
@@ -950,25 +964,23 @@ async function gruppe(namen: string[], fn: () => Promise<void>): Promise<void> {
   try { await fn(); } catch (e) {
     const msg = (e as Error).message;
     console.log(`  ! Gruppe ${namen.join("/")} abgebrochen: ${msg}`);
-    for (const n of namen) if (!checks.some((c) => c.name.startsWith(`${n} `))) nichtGemessen(n, `Gruppe abgebrochen: ${msg}`);
+    // ein schon aufgezeichneter Punkt bleibt, wie er ist (der erste Eintrag zaehlt)
+    for (const n of namen) unmeasured(punktName(n), `Gruppe abgebrochen: ${msg}`);
   }
 }
 
-function portAus(argv: string[]): number {
-  const i = argv.indexOf("--port");
-  const raw = i >= 0 ? argv[i + 1] : undefined;
+function portAus(args: ReturnType<typeof parseArgs>): number {
+  const raw = args.value("port");
   const n = Number(raw);
   if (raw === undefined || !Number.isInteger(n) || n < 1024 || n > 65535) throw new Error(`--port <Zahl> fehlt oder ist ungueltig (${JSON.stringify(raw)}). Den Port der eigenen Zweitinstanz angeben (Rezept im Dateikopf).`);
   return n;
 }
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  if (argv.includes("--setup")) { setupVault(); return; }
-  const port = portAus(argv);
-  const vaultArg = argv.indexOf("--vault");
-  const vaultFilter = vaultArg >= 0 ? argv[vaultArg + 1] : REPO_NAME;
-  const alleNamen = Array.from({ length: 20 }, (_, i) => `G${i + 1}`);
+  const args = parseArgs(process.argv.slice(2));
+  if (args.has("setup")) { setupVault(); return; }
+  const port = portAus(args);
+  const vaultFilter = args.value("vault") ?? REPO_NAME;
   const warnungen: string[] = [];
   const fehler: string[] = [];
   let fake: FakeLlm | null = null;
@@ -1003,7 +1015,7 @@ async function main(): Promise<void> {
     await sleep(400);
 
     const spur = async (nach: string): Promise<void> => {
-      if (!argv.includes("--spur")) return;
+      if (!args.has("spur")) return;
       await sleep(700);
       const st = await statusKlassen(c);
       console.log(`    [spur] nach ${nach}: ${st.cls.split(/\s+/).filter((k) => k.startsWith("is-")).join(" ")} | ${st.label ?? ""} | Fake chat ${f.chat()} comp ${f.comp()} unterwegs ${f.unterwegs()}`);
@@ -1043,17 +1055,11 @@ async function main(): Promise<void> {
       c.close();
     }
     if (fake) await fake.schliessen();
-    for (const n of alleNamen) {
-      if (!checks.some((k) => k.name.startsWith(`${n} `) || k.name === n)) nichtGemessen(n, fehler[0] ?? "kein Ergebnis aufgezeichnet");
-    }
-    const zaehle = (z: Zustand): number => checks.filter((k) => k.zustand === z).length;
-    const rot = checks.filter((k) => k.zustand === "rot");
-    console.log(`\nSmoke ${zaehle("gruen")} gruen · ${rot.length} rot · ${zaehle("uebersprungen")} uebersprungen · ${zaehle("nichts gemessen")} nichts gemessen · von ${alleNamen.length} Pruefpunkten`);
+    // Nie aufgezeichnete Punkte zaehlt `abschluss()` selbst als „nichts gemessen“.
+    abschluss();
     for (const w of warnungen) console.log(`WARNUNG: ${w}`);
-    if (rot.length) console.log(`Rot: ${rot.map((r) => r.name).join(" · ")}`);
-    const nichtGruen = checks.filter((k) => k.zustand !== "gruen").length;
-    if (nichtGruen > 0 || zaehle("gruen") !== alleNamen.length) process.exitCode = fehler.length ? 2 : 1;
+    if (fehler.length) process.exitCode = 2;
   }
 }
 
-main().catch((e: unknown) => { console.error(`\nABBRUCH: ${(e as Error).message}`); process.exitCode = 2; });
+runDriver(main);
