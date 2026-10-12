@@ -115,6 +115,7 @@
       "from": "src/testing",
       "modules": [
         "kit-css",
+        "linear-probe",
         "obsidian-mock"
       ]
     }

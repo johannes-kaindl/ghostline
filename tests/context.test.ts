@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildContext, redact, removeQueryBlocks, windowStart } from "../src/core/context";
+import { pruefeLinear } from "./vendor/kit/linear-probe";
 
 describe("windowStart", () => {
   it("ganzer Text, wenn kurz genug", () => { expect(windowStart("abc", 10)).toBe(0); });
@@ -70,17 +71,23 @@ describe("buildContext", () => {
     const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 20, maxAfter: 10 });
     expect(c.before).not.toContain("klmnop");
   });
-  it("2-MB-Dokument: schnell und korrekt", () => {
+  it("2-MB-Dokument: korrekt", () => {
     const body = "Ein Satz ohne Ende, ".repeat(100_000);
     const doc = body + "MITTE " + body;
     const cursor = body.length + "MITTE ".length;
-    const t0 = performance.now();
     const c = buildContext({ title: "t", docText: doc, cursor, maxBefore: 1500, maxAfter: 200 });
-    expect(performance.now() - t0).toBeLessThan(200);
     expect(c.after.length).toBe(200);
     expect(c.after.startsWith("Ein Satz")).toBe(true);
     expect(c.before.length).toBeLessThanOrEqual(1500);
     expect(c.before.endsWith("MITTE ")).toBe(true);
+  });
+  it("Laufzeit wächst linear mit der Dokumentlänge (statt Wanduhr-Grenze: Last der Maschine kippt keine 200 ms)", () => {
+    // Der Cursor steht in der Mitte; n Wiederholungen je Seite, 20 Zeichen pro Einheit.
+    const r = pruefeLinear((doc: { text: string; cursor: number }) => buildContext({ title: "t", docText: doc.text, cursor: doc.cursor, maxBefore: 1500, maxAfter: 200 }), (n) => {
+      const body = "Ein Satz ohne Ende, ".repeat(n);
+      return { text: body + "MITTE " + body, cursor: body.length + "MITTE ".length };
+    });
+    expect(r.linear, r.message).toBe(true);
   });
   it("Key länger als der Vorlauf, END am Cursor: kein Schlüsseltext in before", () => {
     const body = ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n").repeat(600);
