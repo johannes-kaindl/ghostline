@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-10-12
+
 ### Changed
 - Vendored `obsidian-kit` 0.59.1 (was 0.56.0) and `code-kit` 0.24.0 (was 0.23.0).
 - Settings, "Request" section: for an endpoint whose model family is not known yet it now reads "not detected yet" instead of "unknown", with a hint that this is normal for a freshly added endpoint and that the LLM Endpoint Manager keeps family and backend per model; the sampling fields read "not sent yet — waits for the model family". Nothing changes in what is sent.
