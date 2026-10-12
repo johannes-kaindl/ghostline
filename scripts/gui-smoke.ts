@@ -36,12 +36,11 @@
  * Typen: `tsconfig.scripts.json` (im `gate` ueber `npm run typecheck:scripts`).
  */
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
-import { createServer, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, bereiteInstanzVor, clickReal, closeExtraLeaves, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, bereiteInstanzVor, clickReal, closeExtraLeaves, entferneFakeManager, installFakeManager as installZentralFakeManager, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { startLlmStub, type StubAnfrage } from "../../tools/obsidian-cdp/llm-stub.js";
 import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
 import { ERROR_PAUSE_MS, normalizeSettings } from "../src/core/settings.js";
 import { buildVault, requireEigenerBuild, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
@@ -198,9 +197,10 @@ async function docText(cdp: Cdp): Promise<string> {
   return (await cdp.evaluate<{ d: string }>(`return { d: app.workspace.activeEditor.editor.getValue() };`)).d;
 }
 
-// ───────────────────────── Fake-LLM-Server ─────────────────────────
+// ───────────────────────── Fake-LLM-Server (zentraler Stub) ─────────────────────────
 
 interface Aufzeichnung { path: string; body: string; model: string | null }
+/** Duenne Huelle ueber `startLlmStub`: die Pruefpunkte lesen weiter `chat()/comp()/fertig()`, der Server selbst ist zentral. */
 interface FakeLlm {
   url: string;
   ankuenfte(): number[]; chat(): number; comp(): number; frueherSchluss(): number; unterwegs(): number; fertig(): number;
@@ -211,135 +211,40 @@ interface FakeLlm {
   stoppen(): Promise<void>; starten(): Promise<void>; schliessen(): Promise<void>;
 }
 
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" };
 const STUECKE = ["in ", "den ", "Park"];
 
 async function startFakeLlm(): Promise<FakeLlm> {
-  let chat = 0, comp = 0, frueh = 0, unterwegs = 0, pause = 0, fertig = 0;
-  let letzte: Aufzeichnung | null = null;
-  let antworten: string[][] = [];
-  const ankuenfte: number[] = [];
-  let port = 0;
-  let server: Server | null = null;
-
-  const sende = (res: ServerResponse, kind: "chat" | "comp", stream: boolean): void => {
-    let i = 0;
-    const stuecke = antworten.shift() ?? STUECKE;
-    if (!stream) {
-      // Wie ein echter Server: `stream: false` bekommt eine volle Completion (JSON), nie einen SSE-Strom.
-      const text = stuecke.join("");
-      const body = kind === "chat" ? { choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }] } : { choices: [{ text, finish_reason: "stop" }] };
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify(body));
-      return;
-    }
-    const next = (): void => {
-      if (res.destroyed || res.writableEnded) return;
-      if (i < stuecke.length) {
-        const text = stuecke[i++] as string;
-        const chunk = kind === "chat" ? { choices: [{ delta: { content: text }, finish_reason: null }] } : { choices: [{ text, finish_reason: null }] };
-        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-        setTimeout(next, 80);
-      } else {
-        const end = kind === "chat" ? { choices: [{ delta: {}, finish_reason: "stop" }] } : { choices: [{ text: "", finish_reason: "stop" }] };
-        res.write(`data: ${JSON.stringify(end)}\n\n`);
-        res.write("data: [DONE]\n\n");
-        res.end();
-      }
-    };
-    next();
-  };
-
-  const bauen = (): Server => createServer((req, res) => {
-    for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);
-    if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-    if (req.method === "GET" && req.url?.includes("/v1/models") === true) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ data: [{ id: CHAT_MODEL }, { id: FIM_MODEL }] }));
-      return;
-    }
-    const kind = req.method === "POST" ? (req.url?.includes("/v1/chat/completions") === true ? "chat" : req.url?.includes("/v1/completions") === true ? "comp" : null) : null;
-    if (kind === null) { res.writeHead(404); res.end(); return; }
-    let body = "";
-    req.on("data", (c: Buffer) => { body += c.toString("utf8"); });
-    req.on("end", () => {
-      ankuenfte.push(Date.now());
-      if (kind === "chat") chat += 1; else comp += 1;
-      let model: string | null = null;
-      let stream = true;
-      try { const j = JSON.parse(body) as { model?: unknown; stream?: unknown }; model = (j.model as string | undefined) ?? null; stream = j.stream !== false; } catch { model = null; }
-      letzte = { path: kind === "chat" ? "/v1/chat/completions" : "/v1/completions", body, model };
-      unterwegs += 1;
-      // `req.on("close")` feuert in neuerem Node nach dem Lesen des Bodys, nicht beim Verbindungsende —
-      // der Abbruch durch den Client zeigt sich an der ANTWORT: geschlossen, ohne dass res.end() lief.
-      res.on("close", () => { unterwegs -= 1; if (!res.writableEnded) frueh += 1; });
-      res.on("finish", () => { fertig += 1; });
-      const los = (): void => {
-        if (res.destroyed) return;
-        if (stream) res.writeHead(200, { "Content-Type": "text/event-stream", ...CORS });
-        sende(res, kind, stream);
-      };
-      if (pause > 0) setTimeout(los, pause); else los();
-    });
-  });
-
-  const starten = async (): Promise<void> => {
-    if (server) return;
-    server = bauen();
-    const s = server;
-    await new Promise<void>((resolve, reject) => { s.once("error", reject); s.listen(port, "127.0.0.1", resolve); });
-    port = (s.address() as AddressInfo).port;
-  };
-  const stoppen = async (): Promise<void> => {
-    const s = server;
-    server = null;
-    if (!s) return;
-    s.closeAllConnections();
-    await new Promise<void>((resolve) => { s.close(() => { resolve(); }); });
-  };
-  await starten();
+  const stub = await startLlmStub({ models: [CHAT_MODEL, FIM_MODEL], fim: true, takt: 80, standard: { stuecke: STUECKE } });
+  const generierung = (): StubAnfrage[] => stub.anfragen().filter((a) => a.route === "chat" || a.route === "fim");
   return {
-    get url() { return `http://127.0.0.1:${port}`; },
-    ankuenfte: () => [...ankuenfte], chat: () => chat, comp: () => comp, frueherSchluss: () => frueh, unterwegs: () => unterwegs, fertig: () => fertig,
-    letzte: () => letzte, setPause: (ms) => { pause = ms; }, setAntworten: (liste) => { antworten = liste.map((l) => [...l]); },
-    starten, stoppen, schliessen: stoppen,
+    get url() { return stub.url; },
+    ankuenfte: () => generierung().map((a) => a.zeit),
+    chat: () => stub.zaehler().chat, comp: () => stub.zaehler().fim,
+    frueherSchluss: () => stub.zaehler().clientGeschlossen, unterwegs: () => stub.zaehler().unterwegs, fertig: () => stub.zaehler().fertig,
+    letzte: () => {
+      const a = generierung().at(-1);
+      return a ? { path: a.pfad, body: a.body, model: (a.json as { model?: string } | null)?.model ?? null } : null;
+    },
+    setPause: (ms) => { stub.konfiguriere({ verzoegerungMs: ms }); },
+    setAntworten: (liste) => { stub.antworten(liste.map((stuecke) => ({ stuecke }))); },
+    starten: () => stub.start(), stoppen: () => stub.stop(), schliessen: () => stub.stop(),
   };
 }
 
-/** Fake-Manager nach Plugin-API v1 (Form: lingotuner `installFakeManager`). Haengt ihn ein und
- *  verwirft die gemerkte Aufloesung des Plugins, damit sie neu laeuft. */
-async function installFakeManager(cdp: Cdp, url: string): Promise<void> {
-  await cdp.evaluate(`
-    if (!("__smokeVorherManager" in window)) window.__smokeVorherManager = app.plugins.plugins[${q(MANAGER_ID)}] ?? null;
-    const models = [{ id: ${q(CHAT_MODEL)} }, { id: ${q(FIM_MODEL)} }];
-    const res = { id: "smoke", label: "Smoke", config: { url: ${q(url)} }, defaultModel: ${q(CHAT_MODEL)}, backend: "lmstudio", models };
-    const ep = { id: "smoke", label: "Smoke", url: ${q(url)}, provider: "openai", capabilities: ["chat"], defaultModel: ${q(CHAT_MODEL)}, enabled: true, hasSecret: false, backend: "lmstudio", models };
-    const api = {
-      version: 1,
-      list: () => [ep],
-      get: (id) => (id === "smoke" ? ep : null),
-      resolve: async () => res,
-      materialize: async (id) => (id === "smoke" ? res : { error: "not-found" }),
-      models: async (id) => (id === "smoke" ? [${q(CHAT_MODEL)}, ${q(FIM_MODEL)}] : { error: "not-found" }),
-      importEndpoints: async (eps) => ({ added: [], merged: [], skipped: eps.map((e) => e.url) }),
-      on: () => () => {},
-    };
-    app.plugins.plugins[${q(MANAGER_ID)}] = { api };
-    app.plugins.plugins[${q(PLUGIN_ID)}].llm.invalidate();
-    return { ok: true };
-  `);
+/** Fake-Manager (zentral): haengt ihn ein, sichert den Slot und verwirft die gemerkte Aufloesung des Plugins. */
+async function installFakeManager(cdp: Cdp, url: string): Promise<{ vorher: string }> {
+  return installZentralFakeManager(cdp, {
+    pluginId: MANAGER_ID,
+    invalidiere: [PLUGIN_ID],
+    endpunkte: [{ id: "smoke", label: "Smoke", url, backend: "lmstudio", models: [CHAT_MODEL, FIM_MODEL], defaultModel: CHAT_MODEL, configModel: "keins" }],
+  });
 }
 async function removeFakeManager(cdp: Cdp): Promise<void> {
-  await cdp.evaluate(`
-    if ("__smokeVorherManager" in window) {
-      const v = window.__smokeVorherManager;
-      if (v === null) delete app.plugins.plugins[${q(MANAGER_ID)}]; else app.plugins.plugins[${q(MANAGER_ID)}] = v;
-      delete window.__smokeVorherManager;
-    }
-    const p = app.plugins.plugins[${q(PLUGIN_ID)}];
-    if (p) p.llm.invalidate();
-    return { ok: true };
-  `);
+  await entferneFakeManager(cdp, { pluginId: MANAGER_ID, invalidiere: [PLUGIN_ID] });
+}
+/** Zustand des Manager-Slots: kein Eintrag, ein Fake (Marke `__fakeManager`) oder ein echter Manager. */
+async function managerSlot(cdp: Cdp): Promise<"keiner" | "fake" | "echt"> {
+  return (await cdp.evaluate<{ s: "keiner" | "fake" | "echt" }>(`const m = app.plugins.plugins[${q(MANAGER_ID)}]; return { s: !m ? "keiner" : m.__fakeManager || m.api?.__fakeManager ? "fake" : "echt" };`)).s;
 }
 async function waehleModell(cdp: Cdp, model: string): Promise<void> {
   await setPluginSetting(cdp, PLUGIN_ID, "choice", { endpointId: "smoke", model });
@@ -986,6 +891,7 @@ async function main(): Promise<void> {
   let fake: FakeLlm | null = null;
   let cdp: Cdp | null = null;
   let manager = false;
+  let managerVorher: "keiner" | "fake" | "echt" | null = null;
   try {
     selbsttestG15();
     selbsttestG16();
@@ -1010,8 +916,9 @@ async function main(): Promise<void> {
     await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`);
     await setzeNotizenZurueck(c);
     await setzeEinstellungenZurueck(c);
+    managerVorher = await managerSlot(c);
+    manager = true; // vor dem Einbau: bricht er selbst ab, raeumt das `finally` trotzdem auf
     await installFakeManager(c, f.url);
-    manager = true;
     await sleep(400);
 
     const spur = async (nach: string): Promise<void> => {
@@ -1047,7 +954,13 @@ async function main(): Promise<void> {
       await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`).catch(() => undefined);
       await entferneHotkey(c).catch(() => undefined);
       await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
-      if (manager) await removeFakeManager(c).catch(() => undefined);
+      if (manager) {
+        await removeFakeManager(c).catch(() => undefined);
+        // CORE-TEST-21: nach dem Lauf muss der Slot wieder sein, wie er davor war — sonst misst der naechste Lauf im selben Prozess den Fake.
+        const danach = await managerSlot(c).catch(() => "unlesbar");
+        console.log(`Fake-Manager-Abbau: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
+        if (danach !== managerVorher) fehler.push(`Fake-Manager nicht abgebaut: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
+      }
       await setzeNotizenZurueck(c).catch(() => undefined);
       await setzeEinstellungenZurueck(c).catch(() => undefined);
       const n = await closeExtraLeaves(c).catch(() => 0);
