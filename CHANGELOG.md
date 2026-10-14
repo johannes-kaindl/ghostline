@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Vendored `obsidian-kit` 0.60.1 (was 0.59.1) and `code-kit` 0.27.1 (was 0.24.0). Nothing you see in this plugin changes: kit 0.60.0 adds the tool-provider contract, share export, per-code manager error texts and a thinking-button style that this plugin does not use; code-kit 0.25.0 to 0.27.0 add helpers (data URLs, byte sizes, local time stamps, slugs, single secret values) it does not use either.
+
 ## [0.2.3] — 2026-10-12
 
 ### Changed
