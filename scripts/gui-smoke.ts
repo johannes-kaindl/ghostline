@@ -39,7 +39,7 @@ import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, bereiteInstanzVor, clickReal, closeExtraLeaves, entferneFakeManager, installFakeManager as installZentralFakeManager, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, clickReal, closeExtraLeaves, entferneFakeManager, istAbgebrochen, installFakeManager as installZentralFakeManager, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
 import { startLlmStub, type StubAnfrage } from "../../tools/obsidian-cdp/llm-stub.js";
 import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
 import { ERROR_PAUSE_MS, normalizeSettings } from "../src/core/settings.js";
@@ -271,7 +271,7 @@ async function setzeEinstellungenZurueck(cdp: Cdp): Promise<void> {
 async function setzeNotizenZurueck(cdp: Cdp): Promise<void> {
   await cdp.evaluate(`
     app.workspace.detachLeavesOfType("markdown");
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, ${istAbgebrochen() ? 0 : 300}));
     const texte = ${JSON.stringify(Object.fromEntries(NOTES.map((n) => [n, original(n)])))};
     for (const [pfad, text] of Object.entries(texte)) {
       const f = app.vault.getAbstractFileByPath(pfad);
@@ -281,6 +281,7 @@ async function setzeNotizenZurueck(cdp: Cdp): Promise<void> {
     return { ok: true };
   `);
   // Ein verspaetetes Speichern einer eben geschlossenen Notiz kann den Reset ueberschreiben: pollen statt schlafen.
+  if (istAbgebrochen()) return; // Abbruch: nicht warten (Frist 1 s je Schritt)
   for (const n of NOTES) await stabilePlatte(cdp, n, original(n), 6000);
 }
 /** Pollt die Platte, bis der Fixture-Text dort 600 ms unveraendert liegt; weicht sie ab, wird neu geschrieben
@@ -892,6 +893,28 @@ async function main(): Promise<void> {
   let cdp: Cdp | null = null;
   let manager = false;
   let managerVorher: "keiner" | "fake" | "echt" | null = null;
+  let wirtsZustand: ReturnType<typeof beimAbbruch> | null = null;
+  let notizenZustand: ReturnType<typeof beimAbbruch> | null = null;
+  // Aufraeumschritte (idempotent, im Abbruch ohne Warten): laufen im Normalweg ueber `schliesse()` im `finally`.
+  const wirtZurueck = async (): Promise<void> => {
+    if (!cdp) return;
+    const c = cdp;
+    await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`).catch(() => undefined);
+    await entferneHotkey(c).catch(() => undefined);
+    await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
+    if (manager) {
+      await removeFakeManager(c).catch(() => undefined);
+      // CORE-TEST-21: nach dem Lauf muss der Slot wieder sein, wie er davor war — sonst misst der naechste Lauf im selben Prozess den Fake.
+      const danach = await managerSlot(c).catch(() => "unlesbar");
+      console.log(`Fake-Manager-Abbau: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
+      if (danach !== managerVorher) fehler.push(`Fake-Manager nicht abgebaut: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
+    }
+  };
+  const notizenZurueck = async (): Promise<void> => {
+    if (!cdp) return;
+    await setzeNotizenZurueck(cdp).catch(() => undefined);
+    await setzeEinstellungenZurueck(cdp).catch(() => undefined);
+  };
   try {
     selbsttestG15();
     selbsttestG16();
@@ -901,6 +924,9 @@ async function main(): Promise<void> {
     cdp = await attachTo("workspace", port, vaultFilter);
     if (!cdp) throw new Error(`Kein Obsidian-Fenster fuer Vault "${vaultFilter}" auf Port ${port}.`);
     const c = cdp;
+    // Vor der ersten Mutation anmelden; Rueckwaerts-Reihenfolge: erst Wirt (Manager, Hotkey, Vim), dann Notizen/Einstellungen.
+    notizenZustand = beimAbbruch(notizenZurueck, "Fixture-Notizen und Einstellungen zurueck");
+    wirtsZustand = beimAbbruch(wirtZurueck, "Wirt-Zustand (Manager, Hotkey, Vim, Einstellungsfenster) zurueck");
     await c.mitschnitt((z) => { if (/error|exception/i.test(z)) warnungen.push(`Renderer: ${z}`); });
     await requireVisible(c);
     const v = await c.evaluate<{ name: string; basePath: string; configDir: string }>(`return { name: app.vault.getName(), basePath: app.vault.adapter.basePath, configDir: app.vault.configDir };`);
@@ -949,23 +975,13 @@ async function main(): Promise<void> {
     fehler.push((e as Error).message);
     console.error(`\nABBRUCH: ${(e as Error).message}`);
   } finally {
+    await wirtsZustand?.schliesse();
+    await notizenZustand?.schliesse();
+    if (istAbgebrochen()) return; // nach Ctrl-C druckt und beendet das Abbruch-Modul
     if (cdp) {
-      const c = cdp;
-      await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`).catch(() => undefined);
-      await entferneHotkey(c).catch(() => undefined);
-      await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
-      if (manager) {
-        await removeFakeManager(c).catch(() => undefined);
-        // CORE-TEST-21: nach dem Lauf muss der Slot wieder sein, wie er davor war — sonst misst der naechste Lauf im selben Prozess den Fake.
-        const danach = await managerSlot(c).catch(() => "unlesbar");
-        console.log(`Fake-Manager-Abbau: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
-        if (danach !== managerVorher) fehler.push(`Fake-Manager nicht abgebaut: Slot vorher ${managerVorher ?? "?"}, nachher ${danach}`);
-      }
-      await setzeNotizenZurueck(c).catch(() => undefined);
-      await setzeEinstellungenZurueck(c).catch(() => undefined);
-      const n = await closeExtraLeaves(c).catch(() => 0);
-      console.log(`\nAufgeraeumt: ${n} Leaves offen. Notices: ${await notices(c).catch(() => "?")}`);
-      c.close();
+      const n = await closeExtraLeaves(cdp).catch(() => 0);
+      console.log(`\nAufgeraeumt: ${n} Leaves offen. Notices: ${await notices(cdp).catch(() => "?")}`);
+      cdp.close();
     }
     if (fake) await fake.schliessen();
     // Nie aufgezeichnete Punkte zaehlt `abschluss()` selbst als „nichts gemessen“.
