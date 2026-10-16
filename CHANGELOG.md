@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-16
+
 ### Fixed
 - **Gemma 4 on LM Studio: a suggestion is never a sentence from the model's thinking.** Gemma 4 writes its thinking into the answer text without an opening marker and closes it with `<channel|>`. The suggestion now shows only what stands behind the marker, on the chat path and on the FIM path (`/v1/completions`); on the chat path the ghost text is cleared when the marker arrives. On the FIM path, while the text streams, the thinking can show for a moment before the marker replaces it. A Gemma 4 model that cannot be switched off on LM Studio no longer raises the "thinking despite off" warning.
 
