@@ -97,8 +97,9 @@ export default class GhostlinePlugin extends Plugin {
       },
       // `facts` stammt aus der Modellantwort zur Notiz: nur auswerten, nie speichern oder loggen.
       // Nur der FIM-Pfad: der Chat-Pfad meldet über die Verbindung selbst (eine Sitzung, keine Doppelmeldung).
-      onFacts: (facts, family: FamilyId | null, kind) => {
-        if (kind === "fim") this.llm.session.report(checkResponse({ family, thinking: this.settings.request.thinking.complete ?? "off" }, facts));
+      onFacts: (facts, family: FamilyId | null, kind, backend) => {
+        // `backend` gehoert dazu: Gemma 4 auf LM Studio kann nicht aus, ihr Denken bei „off“ ist dort die Anfrage, keine Abweichung.
+        if (kind === "fim") this.llm.session.report(checkResponse({ family, thinking: this.settings.request.thinking.complete ?? "off", backend }, facts));
       },
       // Nur Parameter (Sampling-Felder und Stop-Liste), nie Notiztext oder Prompt.
       onRequest: (params, kind) => { if (kind === "fim") this.llm.session.recordRequest(params); },
@@ -137,9 +138,9 @@ export default class GhostlinePlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", () => this.exclusions.invalidate()));
     this.registerEvent(this.app.metadataCache.on("resolved", () => this.exclusions.invalidate()));
     this.registerEvent(this.app.vault.on("rename", () => this.exclusions.invalidate()));
-    this.app.workspace.onLayoutReady(() => {
-      this.register(onEndpointManagerChanged(this.app, () => { this.llm.invalidate(); }));
-    });
+    // Das Kit-Abo meldet sich selbst nach, wenn der Manager erst nach diesem Plugin erscheint (obsidian-kit 0.61.0), und ruft den
+    // Rückruf dann einmal: `invalidate` verträgt das. Kein `onLayoutReady` mehr nötig.
+    this.register(onEndpointManagerChanged(this.app, () => { this.llm.invalidate(); }));
   }
 
   async saveSettings(): Promise<void> {

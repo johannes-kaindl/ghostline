@@ -30,7 +30,7 @@ export interface SessionDeps {
   vimAllows(view: EditorView): boolean;
   status: StatusSink;
   /** Nur der FIM-Pfad meldet hier: der Chat-Pfad meldet über die Verbindung selbst (keine Doppelmeldung). */
-  onFacts(facts: ResponseFacts, family: FamilyId | null, kind: "chat" | "fim"): void;
+  onFacts(facts: ResponseFacts, family: FamilyId | null, kind: "chat" | "fim", backend: BackendId): void;
   /** Gesendete Parameter für „Letzte Anfrage“ — nur Parameter, nie Notiztext. */
   onRequest(params: Record<string, unknown>, kind: "chat" | "fim"): void;
   health: { until: number; empty: number };
@@ -197,7 +197,7 @@ export class GhostSession implements PluginValue {
       this.checkingShown = true;
       this.deps.status.checking();
       const res = await this.deps.paths(choice.kind, choice.template).request({
-        ctx, endpoint: target.endpoint, model: target.model, params, signal: mine.signal,
+        ctx, endpoint: target.endpoint, model: target.model, params, signal: mine.signal, family: target.family,
         onText: (raw) => {
           if (mine.signal.aborted || stale()) return;
           this.dispatch({ type: "text", requestId, text: cleanCompletion(raw, ctx.before, ctx.after, false) });
@@ -223,7 +223,7 @@ export class GhostSession implements PluginValue {
       else if (choice.warning === "fim-unsupported") this.deps.status.warning(t("status.fimUnsupported"));
       else this.deps.status.ok(firstMs);
       // Nach dem Status: eine Abweichungs-Warnung (einmal je Art) soll nicht sofort von „ok“ überschrieben werden (Final-Review M1).
-      this.deps.onFacts(res.facts, target.family, choice.kind);
+      this.deps.onFacts(res.facts, target.family, choice.kind, target.backend);
       this.dispatch({ type: "request-ended", requestId, text });
       this.paint(requestId);
     } catch (e) {

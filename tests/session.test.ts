@@ -202,6 +202,15 @@ describe("GhostSession", () => {
     await flush();
     expect(t.view.state.field(ghostField)).toBeNull();
   });
+  it("Familie und Backend des Ziels gehen an den Weg bzw. an onFacts (gemma4 × lmstudio: der Denkkanal wird gelesen, off ist dort keine Abweichung)", async () => {
+    const t = setup(async () => "in den Park");
+    t.deps.target = async () => ({ endpoint: { url: "http://h" }, model: "m", family: "gemma4", backend: "lmstudio" });
+    const gesehen: Array<{ family: unknown; backend: unknown }> = [];
+    t.deps.onFacts = (_f, family, _kind, backend) => { gesehen.push({ family, backend }); };
+    t.type("Ich gehe "); t.clock.advance(300); await flush();
+    expect(t.calls[0]?.family).toBe("gemma4");
+    expect(gesehen).toEqual([{ family: "gemma4", backend: "lmstudio" }]);
+  });
   it("target() lehnt ab: Fehlerstatus, Pause, kein hängender Spinner", async () => {
     const t = setup(async () => "in den Park");
     t.deps.target = () => Promise.reject(new Error("boom"));

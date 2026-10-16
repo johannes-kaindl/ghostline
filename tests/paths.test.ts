@@ -19,6 +19,11 @@ describe("completeParams", () => {
     expect(r.params.reasoning_effort).toBe("none");
     expect(r.offNotPossible).toBe(false);
   });
+  it("Gemma 4 auf LM Studio meldet off-not-possible (code-kit 0.28.0), auf anderen Backends nicht", () => {
+    const req = { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false };
+    expect(completeParams({ family: "gemma4", backend: "lmstudio", request: req }).offNotPossible).toBe(true);
+    expect(completeParams({ family: "gemma4", backend: "openwebui", request: req }).offNotPossible).toBe(false);
+  });
   it("gpt-oss meldet off-not-possible", () => {
     const r = completeParams({ family: "gpt-oss", backend: "lmstudio", request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false } });
     expect(r.offNotPossible).toBe(true);
@@ -54,6 +59,15 @@ describe("Chat-Weg", () => {
     expect(texts).toEqual(["mor", "morgen"]);
     expect(r).toMatchObject({ ok: true, raw: "morgen", timing });
   });
+  it("onContentReset der Verbindung leert den Ghost-Text (Gemma 4 ohne Öffner: der bisherige Text war das Denken)", async () => {
+    const llm: Pick<LlmConnection, "complete"> = {
+      async complete(_req, h) { h?.onToken?.("Ich denke."); h?.onContentReset?.(); h?.onToken?.("morgen"); return { facts: null, deviations: [], source: {} as never, ...okResult("morgen") } as LlmResult; },
+    };
+    const texts: string[] = [];
+    const r = await createChatPath(llm).request({ ctx, endpoint: { url: "u" }, model: "m", params: {}, signal: new AbortController().signal, onText: (t) => texts.push(t) });
+    expect(texts).toEqual(["Ich denke.", "", "morgen"]);
+    expect(r).toMatchObject({ ok: true, raw: "morgen" });
+  });
   it("liefert die Tatsachen der Verbindung weiter, sonst baut er sie aus der Antwort", async () => {
     const facts = { status: 200, content: "x", finishReason: "stop" };
     const { llm } = fakeLlm({ ...okResult("x"), facts });
@@ -84,5 +98,25 @@ describe("FIM-Weg", () => {
     expect(seen.body?.prompt).toBe("<|fim_prefix|>T\n\nWir fahren <|fim_suffix|><|fim_middle|>");
     expect(seen.body?.stop).toEqual(["\n", "<|endoftext|>", "<|fim_pad|>", "<|file_sep|>"]);
     expect(r).toMatchObject({ ok: true, raw: "morgen" });
+  });
+
+  describe("Familie gemma4: das Denken ohne Öffner steht vor <channel|> im Completion-Text", () => {
+    const chunks = ['data: {"choices":[{"text":"Ich denke nach."}]}\n', 'data: {"choices":[{"text":"<channel|>morgen"}]}\n'];
+    const t = fimTemplateFor("qwen2.5-coder-7b")!;
+    const run = async (family: "gemma4" | null | undefined) => {
+      const texts: string[] = [];
+      const fim = createFimClient({ transport: capture(chunks, {}) });
+      const r = await createFimPath(fim, t).request({ ctx, endpoint: { url: "u" }, model: "m", params: {}, signal: new AbortController().signal, onText: (x) => texts.push(x), ...(family !== undefined ? { family } : {}) });
+      return { r, texts };
+    };
+    it("der Vorschlag ist nur, was hinter dem Marker steht; die Prüffakten behalten den Rohtext", async () => {
+      const { r, texts } = await run("gemma4");
+      expect(r).toMatchObject({ ok: true, raw: "morgen", facts: { content: "Ich denke nach.<channel|>morgen" } });
+      expect(texts[texts.length - 1]).toBe("morgen");
+    });
+    it("andere Familien oder keine: der Text bleibt unverändert (ein anderes Modell kann <channel|> in einer Antwort schreiben)", async () => {
+      expect((await run(null)).r).toMatchObject({ raw: "Ich denke nach.<channel|>morgen" });
+      expect((await run(undefined)).r).toMatchObject({ raw: "Ich denke nach.<channel|>morgen" });
+    });
   });
 });

@@ -6,7 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Gemma 4 on LM Studio: a suggestion is never a sentence from the model's thinking.** Gemma 4 writes its thinking into the answer text without an opening marker and closes it with `<channel|>`. The suggestion now shows only what stands behind the marker, on the chat path and on the FIM path (`/v1/completions`); on the chat path the ghost text is cleared when the marker arrives. On the FIM path, while the text streams, the thinking can show for a moment before the marker replaces it. A Gemma 4 model that cannot be switched off on LM Studio no longer raises the "thinking despite off" warning.
+
 ### Changed
+- Vendored `obsidian-kit` 0.61.0 and `code-kit` 0.28.0 (from 0.60.1 and 0.27.1). Visible effects of the skipped releases (obsidian-kit 0.60.2, 0.60.3, 0.61.0; code-kit 0.27.2, 0.28.0): with Gemma 4 on LM Studio, "thinking off" sends the lowest effort instead of `none` (LM Studio ignores `none` for that model), so the model thinks a little and the status line says it always thinks; a backend or model family the plugin does not know yet no longer raises an error in the request view; if the LLM Endpoint Manager is switched on after this plugin, the endpoint subscription now catches up instead of staying silent for the session.
 - Vendored `obsidian-kit` 0.60.1 (was 0.59.1) and `code-kit` 0.27.1 (was 0.24.0). Nothing you see in this plugin changes: kit 0.60.0 adds the tool-provider contract, share export, per-code manager error texts and a thinking-button style that this plugin does not use; code-kit 0.25.0 to 0.27.0 add helpers (data URLs, byte sizes, local time stamps, slugs, single secret values) it does not use either.
 
 ## [0.2.3] — 2026-10-12

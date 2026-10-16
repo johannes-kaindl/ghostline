@@ -13,6 +13,8 @@ export function createChatPath(llm: Pick<LlmConnection, "complete">): Completion
         signal: r.signal,
         overrides: { stop: STOP },
         onToken: (t) => { acc += t; r.onText(acc); },
+        // Gemma 4 ohne Öffner: der bisher gezeigte Text war das Denken (es kommt über `reasoning` des Ergebnisses) — der Ghost wird geleert.
+        onContentReset: () => { acc = ""; r.onText(""); },
       });
       if (res.ok) {
         return { ok: true, raw: res.content, timing: res.timing, facts: res.facts ?? { status: 200, content: res.content, reasoning: res.reasoning, finishReason: res.finishReason ?? null } };
