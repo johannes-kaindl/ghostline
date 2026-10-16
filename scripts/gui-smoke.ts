@@ -1,5 +1,5 @@
 /**
- * GUI-Smoke — faehrt die Pruefpunkte G1-G20 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
+ * GUI-Smoke — faehrt die Pruefpunkte G1-G22 aus docs/internal/SMOKE.md gegen ein LAUFENDES Obsidian
  * (CORE-TEST-02 b). Ein Fake-LLM-Server und ein Fake-Manager (llm-endpoint-manager, Plugin-API v1)
  * leben im Treiber: kein echtes Modell, keine echte URL, kein Schluessel.
  *
@@ -54,6 +54,9 @@ const NOTES_DIR = join(FIXTURE_DIR, "notes");
 const NOTES = ["Schreiben.md", "Code.md", "Clippings/Fremd.md", "Aus.md", "An.md", "Liste.md", "Schluessel.md"] as const;
 const CHAT_MODEL = "smoke-chat";
 const FIM_MODEL = "qwen2.5-coder-smoke";
+// Gemma 4 (Welle 23): ein Chat-Modell und ein Modell, dessen Name zugleich die FIM-Schreibweise (qwen2.5-coder) und die Familie gemma4 traegt.
+const GEMMA_CHAT_MODEL = "google/gemma-4-e4b";
+const GEMMA_FIM_MODEL = "gemma-4-qwen2.5-coder-smoke";
 const REDACT_MARK = "[redacted-private-key]";
 
 /** Soll-Liste aller Pruefpunkte (der Nenner der Bilanz). */
@@ -78,6 +81,8 @@ const PUNKTE = [
   "G18 Tab-Kette",
   "G19 Kein Endpunkt",
   "G20 Einstellungen",
+  "G21 Gemma 4 ohne Oeffner im Chat-Weg: der Ghost zeigt nur die Antwort, nie das Denken",
+  "G22 Gemma 4 ohne Oeffner im FIM-Weg (/v1/completions): der Ghost zeigt nur die Antwort, nie das Denken",
 ] as const;
 /** Zeitnotizen der Ghost-Wartefunktionen (Zeit bis zum ersten Vorschlag, Ankunft der Anfrage am Fake), die der naechste Pruefpunkt in seinen Detailtext uebernimmt. */
 let zeitNotizen: string[] = [];
@@ -214,7 +219,7 @@ interface FakeLlm {
 const STUECKE = ["in ", "den ", "Park"];
 
 async function startFakeLlm(): Promise<FakeLlm> {
-  const stub = await startLlmStub({ models: [CHAT_MODEL, FIM_MODEL], fim: true, takt: 80, standard: { stuecke: STUECKE } });
+  const stub = await startLlmStub({ models: [CHAT_MODEL, FIM_MODEL, GEMMA_CHAT_MODEL, GEMMA_FIM_MODEL], fim: true, takt: 80, standard: { stuecke: STUECKE } });
   const generierung = (): StubAnfrage[] => stub.anfragen().filter((a) => a.route === "chat" || a.route === "fim");
   return {
     get url() { return stub.url; },
@@ -236,7 +241,7 @@ async function installFakeManager(cdp: Cdp, url: string): Promise<{ vorher: stri
   return installZentralFakeManager(cdp, {
     pluginId: MANAGER_ID,
     invalidiere: [PLUGIN_ID],
-    endpunkte: [{ id: "smoke", label: "Smoke", url, backend: "lmstudio", models: [CHAT_MODEL, FIM_MODEL], defaultModel: CHAT_MODEL, configModel: "keins" }],
+    endpunkte: [{ id: "smoke", label: "Smoke", url, backend: "lmstudio", models: [CHAT_MODEL, FIM_MODEL, GEMMA_CHAT_MODEL, GEMMA_FIM_MODEL], defaultModel: CHAT_MODEL, configModel: "keins" }],
   });
 }
 async function removeFakeManager(cdp: Cdp): Promise<void> {
@@ -792,6 +797,33 @@ async function g18(cdp: Cdp, fake: FakeLlm): Promise<void> {
   } finally { fake.setAntworten([]); }
 }
 
+/** Gemma 4 auf LM Studio (Welle 23): das Denken steht OHNE Oeffner in `content` bzw. `choices[].text`, `<channel|>` schliesst es, die
+ *  Antwort folgt. Der Ghost darf nie ein Satz aus dem Denken sein: gemessen wird der Text am Ende (nach der Antwort) und der Weg
+ *  (Chat oder FIM) am Pfad der letzten Anfrage. Beide Wege einzeln, weil nur der Chat-Weg ueber die Verbindung laeuft (Kanal-Leser
+ *  und `onContentReset` des Kit-Clients), der FIM-Weg dagegen ueber den eigenen schmalen Client. */
+async function g21und22(cdp: Cdp, fake: FakeLlm): Promise<void> {
+  console.log("\nG21/G22 · Gemma 4 ohne Oeffner");
+  const GEDANKE = ["Ich waege erst den Satz ab, ", "und pruefe dann das Ende.<channel|>"];
+  for (const [punkt, modell, pfad] of [
+    ["G21 Gemma 4 ohne Oeffner im Chat-Weg: der Ghost zeigt nur die Antwort, nie das Denken", GEMMA_CHAT_MODEL, "/v1/chat/completions"],
+    ["G22 Gemma 4 ohne Oeffner im FIM-Weg (/v1/completions): der Ghost zeigt nur die Antwort, nie das Denken", GEMMA_FIM_MODEL, "/v1/completions"],
+  ] as const) {
+    await oeffne(cdp, "Schreiben.md");
+    await waehleModell(cdp, modell);
+    await warteRuhe(cdp, fake);
+    fake.setAntworten([[...GEDANKE, "in ", "den ", "Park"]]);
+    try {
+      const f0 = fake.fertig();
+      await typeText(cdp, " ");
+      const g = await warteAufAntwort(cdp, fake, f0, 5000);
+      const weg = fake.letzte()?.path ?? "-";
+      record(punkt as (typeof PUNKTE)[number], g === "in den Park" && weg === pfad,
+        `Ghost ${JSON.stringify(g)} (erwartet "in den Park"), Pfad der Anfrage ${weg} (erwartet ${pfad}), Modell ${modell}`);
+    } finally { fake.setAntworten([]); }
+  }
+  await setPluginSetting(cdp, PLUGIN_ID, "choice", { endpointId: "smoke" });
+}
+
 async function g19(cdp: Cdp, fake: FakeLlm): Promise<void> {
   console.log("\nG19 · Kein Endpunkt: Klick oeffnet die Einstellungen, schaltet nicht um");
   await oeffne(cdp, "Schreiben.md");
@@ -964,6 +996,7 @@ async function main(): Promise<void> {
     await gruppe(["G15"], async () => { await g15(c, f); await spur("G15"); });
     await gruppe(["G17"], async () => { await g17(c, f); await spur("G17"); });
     await gruppe(["G18"], async () => { await g18(c, f); await spur("G18"); });
+    await gruppe(["G21", "G22"], async () => { await g21und22(c, f); await spur("G21/22"); });
     await gruppe(["G19"], async () => { await g19(c, f); await spur("G19"); });
     await gruppe(["G20"], async () => { await g20(c, f); await spur("G20"); });
     // Vim zuletzt: das Umschalten von vimMode laesst im laufenden Renderer Vim-Zustand zurueck
