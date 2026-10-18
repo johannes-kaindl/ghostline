@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- The README describes the Community Store install, and the LLM setup guide link points to its new address.
+
 ## [0.3.0] — 2026-10-16
 
 ### Fixed

@@ -25,13 +25,13 @@ Während du schreibst, wartet Ghostline eine kurze Pause ab, fragt ein lokales M
 
 - **Obsidian 1.11.4+, nur Desktop.** Die Endpunkt-Schlüssel liegen im Schlüsselbund von Obsidian, wofür ab dieser Version `app.secretStorage` nötig ist.
 - **Das Plugin LLM Endpoint Manager.** Ghostline hat keine eigene Endpunktliste: Endpunkte, API-Schlüssel und Modellliste kommen vom Manager, und der Manager hält die Schlüssel im Obsidian-Schlüsselbund.
-- **Ein lokaler LLM-Server** mit geladenem Modell, zum Beispiel LM Studio. Neu bei lokalen LLMs? Die **[Anleitung zum lokalen LLM](https://uplink.jkaindl.de/llm-setup)** führt dich durch Server und Modell.
+- **Ein lokaler LLM-Server** mit geladenem Modell, zum Beispiel LM Studio. Neu bei lokalen LLMs? Die **[Anleitung zum lokalen LLM](https://jkaindl.de/uplink/llm-setup/)** führt dich durch Server und Modell.
 
 ## Install
 
 ### Community plugins
 
-Ghostline ist noch nicht im Community Store. Nach der Aufnahme: **Einstellungen → Community-Plugins → Durchsuchen → „Ghostline“**.
+Öffne **Einstellungen → Community-Plugins → Durchsuchen**, suche nach **Ghostline**, installiere und aktiviere es.
 
 ### Manual
 
