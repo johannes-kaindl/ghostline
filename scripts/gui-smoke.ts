@@ -39,7 +39,7 @@ import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, clickReal, closeExtraLeaves, entferneFakeManager, istAbgebrochen, installFakeManager as installZentralFakeManager, notices, pollUntil, requireVisible, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, clickReal, closeExtraLeaves, entferneFakeManager, istAbgebrochen, installFakeManager as installZentralFakeManager, notices, pollUntil, requireVisible, schliesseEinstellungen, setPluginSetting } from "../../tools/obsidian-cdp/cdp.js";
 import { startLlmStub, type StubAnfrage } from "../../tools/obsidian-cdp/llm-stub.js";
 import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
 import { ERROR_PAUSE_MS, normalizeSettings } from "../src/core/settings.js";
@@ -931,7 +931,7 @@ async function main(): Promise<void> {
   const wirtZurueck = async (): Promise<void> => {
     if (!cdp) return;
     const c = cdp;
-    await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`).catch(() => undefined);
+    await schliesseEinstellungen(c);
     await entferneHotkey(c).catch(() => undefined);
     await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`).catch(() => undefined);
     if (manager) {
@@ -968,7 +968,7 @@ async function main(): Promise<void> {
     await grundlage(c, v.name);
 
     // Ausgangszustand VOR dem Lauf (Lehre 2026-10-01): Pop-outs, Notizen, Einstellungen, Hotkey, Vim, Layout.
-    await c.evaluate(`if (app.setting && typeof app.setting.close === "function") app.setting.close(); return { ok: true };`);
+    await schliesseEinstellungen(c);
     await closeExtraLeaves(c);
     await entferneHotkey(c);
     await c.evaluate(`app.vault.setConfig("vimMode", false); return { ok: true };`);
