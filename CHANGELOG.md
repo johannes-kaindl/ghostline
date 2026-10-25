@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Vendored `obsidian-kit` 0.69.1 and `code-kit` 0.36.0 (from 0.61.0 and 0.28.0). Visible effects of the skipped releases, as far as this plugin shows them: the "Request" section in the settings warns before a request would make LM Studio load another model on demand ("<model> is not loaded; loaded: …"; the request can unload a running one); with LM Studio, whether a model thinks or reads images now comes from the model's own metadata instead of only its name, so a model whose name gave no hint is no longer treated as plain text; the note "Model family recognized" has a button "Set family in the manager" that opens the LLM Endpoint Manager settings; a manager entry of a connection type this plugin does not support (the Claude API entry) is reported as "needs a connection type this plugin does not support" instead of a general configuration error; the "Request" section's styles are updated in `styles.css`. Claude stays invisible to this plugin: it does not opt in to the Anthropic transport. Nothing else of kit 0.62.0 to 0.69.1 and code-kit 0.28.1 to 0.36.0 touches the modules vendored here.
+
 ## [0.3.1] — 2026-10-18
 
 ### Documentation
