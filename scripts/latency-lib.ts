@@ -1,5 +1,7 @@
 /** Reine Hilfen fuer scripts/latency.ts (kein Netz, kein Dateizugriff) — getrennt, damit vitest sie pruefen kann. */
 
+import { escapeTableCell } from "../src/vendor/kit/markdown-table";
+
 export interface LatencyArgs { endpoint: string; models: string[]; runs: number }
 
 export function parseArgs(argv: readonly string[]): LatencyArgs | { error: string } {
@@ -57,7 +59,7 @@ export function parseSseText(buffer: string, kind: "chat" | "fim"): { texts: str
 
 export interface Row { model: string; path: string; cold: string; warmMedian: string; warmP90: string; abort: string; sample: string }
 
-const cell = (s: string): string => s.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+const cell = (s: string): string => escapeTableCell(s.replace(/\s+/g, " ").trim());
 
 export function formatTable(rows: readonly Row[]): string {
   const head = "| Modell | Weg | kalt | warm Median | warm p90 | Abbruchprobe | Beispielantwort |\n|---|---|---|---|---|---|---|";
