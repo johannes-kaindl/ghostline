@@ -1,8 +1,8 @@
 # GUI-Smoke Ghostline
 
-Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G20 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9396, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Der LLM-Server ist der zentrale Stub (`tools/obsidian-cdp/llm-stub.ts`, mit FIM-Route; `startFakeLlm` im Treiber ist nur eine dünne Hülle darüber) und der Fake-Manager kommt aus der Brücke (`installFakeManager`/`entferneFakeManager`); es fließt kein echter Schlüssel und keine echte URL. Der Treiber baut den Manager-Slot am Ende auch bei Abbruch ab und prüft ihn gegen den Zustand vor dem Lauf (CORE-TEST-21).
+Der Treiber `scripts/gui-smoke.ts` fährt die Prüfpunkte G1 bis G22 gegen eine Obsidian-Zweitinstanz (eigenes Profil, eigener Port 9396, CDP-Lock für diesen Port). Das Rezept steht im Kopf der Datei. Der LLM-Server ist der zentrale Stub (`tools/obsidian-cdp/llm-stub.ts`, mit FIM-Route; `startFakeLlm` im Treiber ist nur eine dünne Hülle darüber) und der Fake-Manager kommt aus der Brücke (`installFakeManager`/`entferneFakeManager`); es fließt kein echter Schlüssel und keine echte URL. Der Treiber baut den Manager-Slot am Ende auch bei Abbruch ab und prüft ihn gegen den Zustand vor dem Lauf (CORE-TEST-21).
 
-Erwartete Bilanz: `Smoke 19 gruen · 0 rot · 0 uebersprungen · 0 nichts gemessen · von 19 Pruefpunkten`. DOM-Prüfungen sind kein Layout-Beweis: wie die Statusleiste aussieht, zeigt kein Punkt.
+Erwartete Bilanz: `Smoke 22 gruen · 0 rot · 0 uebersprungen · 0 nichts gemessen · von 22 Pruefpunkten`. DOM-Prüfungen sind kein Layout-Beweis: wie die Statusleiste aussieht, zeigt kein Punkt.
 
 | Punkt | Was | Erwartung |
 |---|---|---|
@@ -26,10 +26,12 @@ Erwartete Bilanz: `Smoke 19 gruen · 0 rot · 0 uebersprungen · 0 nichts gemess
 | G18 | Tab-Kette: nach der Übernahme fragt das Plugin ohne Tastendruck weiter, Tab nimmt den zweiten Vorschlag | Fake antwortet `bis zum Meer.` und `Dann baden wir.`; genau eine Kettenanfrage, Zeile endet auf `bis zum Meer. Dann baden wir.`, kein Ghost |
 | G19 | Kein Endpunkt (Fake-Manager entfernt) | `is-warning` ohne `aria-pressed`; echter Klick ruft `app.setting.open` auf und der aktive Tab ist `ghostline` (die Einstellungen öffnen in der Zweitinstanz als Pop-out, ein DOM-Check im Hauptfenster sähe sie nicht), `enabled` bleibt an, kein `is-off`, keine Anfrage |
 | G20 | Einstellungen: der echte Tab zeichnet Quelle und Anfrage-Abschnitt der Kit-Verbindung in einen losgelösten Host | Mit Manager: Quellenzeile, Anfrage-Abschnitt, keine lokale Liste und kein Text „local list“; ohne Manager: Kit-Hinweis „No LLM Endpoint Manager found“, kein Eingabefeld für weitere Endpunkte |
+| G21 | Gemma 4 ohne Öffner im Chat-Weg (Modell `google/gemma-4-e4b`): der Fake streamt das Denken ohne Öffner, `<channel|>` schließt es, dann `in den Park` | Der Ghost ist `in den Park`, nie ein Satz aus dem Denken; die letzte Anfrage ging an `/v1/chat/completions` |
+| G22 | Gemma 4 ohne Öffner im FIM-Weg (Modell `gemma-4-qwen2.5-coder-smoke`, eigener schmaler Client): dieselbe Antwort in `choices[].text` | Der Ghost ist `in den Park`; die letzte Anfrage ging an `/v1/completions` |
 
 ## Verhalten des Treibers
 
-Der Port ist Pflicht (`--port <n>`), es gibt keinen Default im Code. Jede Prüfgruppe läuft in einem eigenen try/catch: wirft sie, werden ihre fehlenden Punkte als „nichts gemessen“ mit dem Fehlertext geführt, der Lauf geht weiter, und die Bilanz mit Nenner 19 wird in jedem Fall gedruckt; der Exit-Code ist ungleich 0, sobald ein Punkt nicht grün ist. Vor dem Lauf werden Einstellungen-Fenster und zusätzliche Leaves geschlossen. Ein Build im Vault mit ungeklärter Herkunft bricht den Lauf ab (alles „nichts gemessen“). G8 trägt je Fall eine Positivkontrolle (Schreiben.md, An.md ohne Flag, Clippings/Fremd.md mit leerem Ausschluss), die im Detailtext steht. G15 prüft numerisch, dass die Fenstergrenze im Schlüssel liegt, sonst „nichts gemessen“.
+Der Port ist Pflicht (`--port <n>`), es gibt keinen Default im Code. Jede Prüfgruppe läuft in einem eigenen try/catch: wirft sie, werden ihre fehlenden Punkte als „nichts gemessen“ mit dem Fehlertext geführt, der Lauf geht weiter, und die Bilanz mit Nenner 22 wird in jedem Fall gedruckt; der Exit-Code ist ungleich 0, sobald ein Punkt nicht grün ist. Vor dem Lauf werden Einstellungen-Fenster und zusätzliche Leaves geschlossen. Ein Build im Vault mit ungeklärter Herkunft bricht den Lauf ab (alles „nichts gemessen“). G8 trägt je Fall eine Positivkontrolle (Schreiben.md, An.md ohne Flag, Clippings/Fremd.md mit leerem Ausschluss), die im Detailtext steht. G15 prüft numerisch, dass die Fenstergrenze im Schlüssel liegt, sonst „nichts gemessen“.
 
 ## Gegenprobe G15
 

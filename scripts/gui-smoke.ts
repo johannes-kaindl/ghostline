@@ -23,7 +23,7 @@
  *   npm run smoke:gui -- --port 9396     # (b) Restricted Mode und (c) Vertrauensdialog: `bereiteInstanzVor` (Bruecke)
  *   python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  *
- * Bilanz in vier Zustaenden (CORE-TEST-19, `createBilanz`): Nenner ist `PUNKTE` (G1-G20); ein nie aufgezeichneter
+ * Bilanz in vier Zustaenden (CORE-TEST-19, `createBilanz`): Nenner ist `PUNKTE` (G1-G22); ein nie aufgezeichneter
  * Punkt zaehlt als „nichts gemessen". Exit 1 bei Rot oder nichts gemessen, 2 bei Abbruch.
  *
  * Der erste Lauf nach dem Anlegen eines Profils ist ein Aufwaermlauf und zaehlt nicht.
