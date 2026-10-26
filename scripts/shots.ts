@@ -41,6 +41,9 @@ const CAPTURE_WIDTH = 1200;
 const THUMB_WIDTH = 380;
 const FENSTER_BREITE = 1200;
 const FENSTER_HOEHE = 420;
+/** Fensterhoehe von hero.png und next-word.png: der Text endet frueh, und bei 420 px blieb darunter eine leere Flaeche bis zur Statusleiste (37 % und 43 % identische Zeilen, Grenze 25 %). */
+const HOEHE_HERO = 300;
+const HOEHE_NEXT_WORD = 270;
 const ENDPOINT_URL = "http://localhost:1234";
 const MODEL = "qwen2.5-coder-7b";
 /** Obergrenze fuer die Modellantwort (Kaltstart eines Modells kann dauern). */
@@ -49,6 +52,8 @@ const GHOST_MS = 60_000;
 interface Shot {
   name: string;
   klasse: "hero" | "feature" | "detail";
+  /** Fensterhoehe dieses Bildes; ohne Angabe `FENSTER_HOEHE`. */
+  hoehe?: number;
   run(cdp: Cdp, port: number): Promise<Rect | null>;
 }
 
@@ -132,6 +137,7 @@ const SHOTS: Shot[] = [
   {
     name: "hero.png",
     klasse: "hero",
+    hoehe: HOEHE_HERO,
     async run(cdp) {
       if (!(await notizBereit(cdp, "Weekend in Lisbon.md"))) return null;
       if ((await vorschlagAbwarten(cdp)) === null) return null;
@@ -150,6 +156,7 @@ const SHOTS: Shot[] = [
   {
     name: "next-word.png",
     klasse: "feature",
+    hoehe: HOEHE_NEXT_WORD,
     async run(cdp) {
       if (!(await notizBereit(cdp, "Project ideas.md"))) return null;
       if ((await vorschlagAbwarten(cdp)) === null) return null;
@@ -291,6 +298,8 @@ async function main(): Promise<void> {
   for (const shot of SHOTS) {
     if (nur && shot.name !== nur) continue;
     try {
+      await setWindowSize(cdp, FENSTER_BREITE, shot.hoehe ?? FENSTER_HOEHE);
+      await sleep(800);
       const box = await shot.run(cdp, port);
       const png = box ? await capture(cdp, box, 2) : null;
       if (!png) { console.log(`  ✗ ${shot.name} — Zustand kam nicht zustande`); fehlend++; continue; }
