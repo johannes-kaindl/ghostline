@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-10-26
+
 ### Documentation
 
 - The README images hero.png and next-word.png are retaken in a shorter window, so they no longer end in a large empty area (37 % and 43 % of their height was blank, now 15 %).
