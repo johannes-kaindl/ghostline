@@ -29,7 +29,10 @@
         "model-list-cache",
         "backend-probe",
         "capabilities",
-        "redact",
+        {
+          "name": "redact",
+          "ref": "0.60.0"
+        },
         "secrets",
         "embeddings-client",
         "model-context",
