@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/ghostline?label=release)](https://github.com/johannes-kaindl/ghostline/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.11.4%2B%20·%20desktop-7c3aed)
 
-<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero.png" width="820" alt="A note in the editor with a grey ghost-text suggestion continuing the last sentence"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero-demo.webp" width="820" alt="The words “evening we” are typed in a note, the editor waits a moment, a grey ghost-text suggestion appears behind the cursor, and Tab turns it into text"><br><sub>The suggestion is the answer of a local model (qwen2.5-coder-7b); the clip shortens the wait before it to 1.2 s.</sub></p>
 
 While you write, Ghostline waits for a short pause, asks a local model how the current line could continue and shows the answer as grey text behind the cursor. Tab takes it, Escape throws it away. Nothing leaves your machine unless you point it at a remote endpoint yourself.
 
@@ -59,6 +59,8 @@ npm run build   # produces main.js
 5. Press **Tab** to accept it.
 
 ## Usage
+
+<img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero.png" width="820" alt="A note in the editor with a grey ghost-text suggestion continuing the last sentence">
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/list-suggestion.png" width="820" alt="A ghost-text suggestion completing the last item of a bullet list">
 

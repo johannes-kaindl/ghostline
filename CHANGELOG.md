@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- The README opens with a short clip (animated WebP) instead of a still: the words are typed, the editor waits, the model's own suggestion appears, Tab accepts it. `hero.png` moves to the Usage section.
+- `npm run sequenz` records an operation as a frame sequence with an input log (raw material for clips).
+
 ## [0.3.3] — 2026-10-26
 
 ### Documentation
