@@ -1,5 +1,5 @@
 /**
- * Sequenz-Aufnahme fuer Ghostline — Leerzeichen, Vorschlag des Modells, Tab, als Bildfolge mit Eingabe-Log.
+ * Sequenz-Aufnahme fuer Ghostline — Tippen, Pause, Vorschlag des Modells, Tab, als Bildfolge mit Eingabe-Log.
  *
  * Was eine Sequenz zeigen muss, steht in `docs/images/README.md` § Sequenzen (Aufnahme-Vertrag); dieser Treiber ist
  * das Rezept. Bruecke und Log-Vertrag: `tools/obsidian-cdp/README.md` § Sequenz. Vorbild: `neurovim-obsidian/scripts/sequenz.ts`.
@@ -16,7 +16,7 @@
  * npm run build && npm run shots -- --setup       # derselbe Vault wie fuer die Standbilder (ghostline-shots, mit Manager und Endpunkt)
  * # Zweitinstanz starten (Profil, .asar, obsidian.json, Lock) — siehe docs/images/README.md § Rezept
  * npm run sequenz -- --port 9361                  # --port ist Pflicht, es gibt keinen Standardport
- * npm run sequenz -- --port 9361 --sequenz lisbon-tab --out out/sequenz
+ * npm run sequenz -- --port 9361 --sequenz lisbon-tippen --out out/sequenz
  * ```
  *
  * Ergebnis: `out/sequenz/<name>/` (Einzelbilder, eingaben.jsonl, sequenz.json; gitignored). Der Arbeitsbaum muss sauber sein,
@@ -29,8 +29,8 @@ import { join } from "node:path";
 import { argv, cwd } from "node:process";
 
 import { Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
-import { attachTo, bereiteInstanzVor, clearNotices, closeExtraLeaves, openExisting, pollUntil, requireVisible, type Cdp } from "../../tools/obsidian-cdp/cdp.js";
-import { boxAround, setWindowSize } from "../../tools/obsidian-cdp/shot.js";
+import { attachTo, bereiteInstanzVor, clearNotices, closeExtraLeaves, openExisting, pollUntil, requireVisible, setAppConfig, type Cdp } from "../../tools/obsidian-cdp/cdp.js";
+import { boxAround, setWindowSize, type Rect } from "../../tools/obsidian-cdp/shot.js";
 import { type AktionsKontext, type Schritt } from "../../tools/obsidian-cdp/sequenz.js";
 import { aufnehmen, ergebnisSchreiben, messzeile } from "../../tools/obsidian-cdp/sequenz-aufnahme.js";
 
@@ -41,11 +41,13 @@ const ENDPOINT_URL = "http://localhost:1234";
 const MODEL = "qwen2.5-coder-7b";
 /** Fensterbreite wie die Standbilder; Hoehe wie `hero.png` (der Text endet frueh, darunter bliebe nur Leere). */
 const FENSTER_BREITE = 1200;
-const FENSTER_HOEHE = 320;
+const FENSTER_HOEHE = 360;
 /** Obergrenze fuer die Modellantwort (Kaltstart eines Modells kann dauern). */
 const GHOST_MS = 60_000;
 /** Der Vorschlag gilt als fertig, wenn sein Text so lange unveraendert steht (wie in `shots.ts`). */
 const RUHE_MS = 1500;
+/** Schriftgroesse des Editors: im Clip wird das Bild verkleinert, bei 16 px lag das Ruhebild unter der Lesegrenze (clipwerk BEFUND). */
+const SCHRIFT = 20;
 const ANSCHLAG = 0.1;
 const VORHALT = 0.8;
 
@@ -82,29 +84,36 @@ const warteAufVorschlag = (stand: Stand) => async (k: AktionsKontext): Promise<v
   throw new Vorbedingung(`Kein Vorschlag nach ${GHOST_MS / 1000} s (${ENDPOINT_URL}, ${MODEL}). Es wird nicht mit einer Attrappe aufgenommen.`);
 };
 
-interface Sequenz { name: string; notiz: string; schritte: (stand: Stand) => Schritt[]; soll: (cdp: Cdp, stand: Stand, vorher: string) => Promise<string | null> }
+interface Sequenz { name: string; notiz: string; kuerzen: string; schritte: (stand: Stand) => Schritt[]; soll: (cdp: Cdp, stand: Stand, vorher: string) => Promise<string | null> }
 
-/** Der Hero-Ablauf des README-Clips: Leerzeichen, Vorschlag abwarten, Tab uebernimmt ihn. */
-const LISBON_TAB: Sequenz = {
-  name: "lisbon-tab",
+/** Das Wort, das getippt wird; die Fixture-Notiz endet auf `In the evening we`, der Treiber entfernt es vor dem Start. */
+const TIPPEN = "evening we";
+
+/** Der Hero-Ablauf des README-Clips: ein Satzende tippen, innehalten, Vorschlag des Modells abwarten, Tab uebernimmt ihn. */
+const LISBON_TIPPEN: Sequenz = {
+  name: "lisbon-tippen",
   notiz: "Weekend in Lisbon.md",
+  kuerzen: TIPPEN,
   schritte: (stand) => [
+    { key: "evening", kind: "text", target: "editor", halt: 0.05 },
+    { key: "Space", kind: "key", target: "editor", halt: 0.05 },
+    { key: "we", kind: "text", target: "editor", halt: 0.05 },
     { key: "Space", kind: "key", target: "editor", halt: 0.2 },
     { key: "VORSCHLAG", kind: "key", target: "ghost", halt: 0.6, aktion: warteAufVorschlag(stand) },
     { key: "Tab", kind: "key", target: "editor", halt: 0.4 },
   ],
   soll: async (cdp, stand, vorher) => {
     const nachher = await dokumentText(cdp);
-    const erwartet = `${vorher} ${stand.vorschlag}`;
+    const erwartet = `${vorher}${TIPPEN} ${stand.vorschlag}`;
     if (nachher.trimEnd() !== erwartet.trimEnd()) return `Dokument endet ${JSON.stringify(nachher.slice(-80))}, erwartet ${JSON.stringify(erwartet.slice(-80))}`;
-    // Beobachtet am 2026-11-05: nach Tab stand beim ersten Lauf (Halt 1,6 s) wieder ein Ghost. Ursache nicht geklaert; das Bild
-    // nach Tab entsteht sofort nach der Taste, was danach steht, geht als Messwert in `herkunft.ghost_nach_tab`.
+    // Beobachtet am 2026-11-05: nach Tab stand bei einem Lauf mit Halt 1,6 s wieder ein Ghost. Ursache nicht geklaert; das Bild nach Tab
+    // entsteht sofort nach der Taste, was danach steht, geht als Messwert in `herkunft.ghost_nach_tab`.
     stand.ghostDanach = await cdp.evaluate<string>(`return document.querySelector(".workspace-leaf.mod-active .ghostline-ghost")?.textContent ?? "";`);
     return null;
   },
 };
 
-const SEQUENZEN: Sequenz[] = [LISBON_TAB];
+const SEQUENZEN: Sequenz[] = [LISBON_TIPPEN];
 
 async function dokumentText(cdp: Cdp): Promise<string> {
   return cdp.evaluate<string>(`return app.workspace.activeEditor?.editor?.getValue() ?? "";`);
@@ -128,7 +137,7 @@ async function pruefeEndpunkt(): Promise<void> {
 }
 
 /** Notiz oeffnen, Seitenleisten zu, Cursor ans Dokumentende, Editor fokussiert, kein Ghost vorhanden. */
-async function notizBereit(cdp: Cdp, pfad: string): Promise<void> {
+async function notizBereit(cdp: Cdp, pfad: string, kuerzen: string): Promise<void> {
   await cdp.send("Page.bringToFront");
   if (!(await openExisting(cdp, pfad, "source"))) throw new Vorbedingung(`Notiz ${pfad} nicht zu oeffnen.`);
   await closeExtraLeaves(cdp);
@@ -138,11 +147,25 @@ async function notizBereit(cdp: Cdp, pfad: string): Promise<void> {
     if (!ed) return false;
     ed.focus();
     const last = ed.lastLine();
+    const zeile = ed.getLine(last);
+    const kuerzen = ${JSON.stringify(kuerzen)};
+    if (kuerzen) {
+      if (!zeile.endsWith(kuerzen)) return false;
+      ed.replaceRange("", { line: last, ch: zeile.length - kuerzen.length }, { line: last, ch: zeile.length });
+    }
     ed.setCursor({ line: last, ch: ed.getLine(last).length });
     await new Promise((r) => setTimeout(r, 400));
     return Boolean(document.activeElement && app.workspace.activeEditor.editor.cm.contentDOM.contains(document.activeElement));
   `);
-  if (!ok) throw new Vorbedingung("Editor ohne Fokus.");
+  if (!ok) throw new Vorbedingung(`Editor ohne Fokus oder die letzte Zeile endet nicht auf ${JSON.stringify(kuerzen)}.`);
+  // Das Entfernen kann einen Vorschlag anstossen: abwarten und, falls einer steht, mit Escape verwerfen (wie ein Nutzer).
+  await sleep(2500);
+  const dazwischen = await cdp.evaluate<string>(`return document.querySelector(".workspace-leaf.mod-active .ghostline-ghost")?.textContent ?? "";`);
+  if (dazwischen.trim() !== "") {
+    await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await sleep(800);
+  }
   const ghost = await cdp.evaluate<string>(`return document.querySelector(".workspace-leaf.mod-active .ghostline-ghost")?.textContent ?? "";`);
   if (ghost.trim() !== "") throw new Vorbedingung(`Vor dem Start steht schon ein Ghost: ${JSON.stringify(ghost)}.`);
 }
@@ -162,14 +185,21 @@ async function herkunft(cdp: Cdp, unsauber: string[]): Promise<Record<string, un
   if (!obsidian) throw new Vorbedingung(`Obsidian-Version nicht aus dem Fenstertitel lesbar (${JSON.stringify(await cdp.evaluate<string>("return document.title;"))}).`);
   return {
     repo: "ghostline", commit, unsauber, plugin_version: manifest.version, license: "AGPL-3.0-or-later",
-    manager_version: manager.version, modell: MODEL, endpunkt: "LM Studio, lokal", theme: "Standard (Obsidian)",
+    manager_version: manager.version, modell: MODEL, endpunkt: "LM Studio, lokal", theme: "Standard (Obsidian)", schrift_px: SCHRIFT,
     obsidian_version: obsidian, fixture: "docs/images/fixture",
     inhalt: "Fixture-Notiz, Text des Vorschlags: Antwort des Modells",
   };
 }
 
+/** Schriftgroesse im laufenden Fenster. Gemessen 2026-10-14 (neurovim-obsidian): `setConfig("baseFontSize")` allein aendert
+ *  `--font-text-size` am Body nicht, deshalb wird die Variable selbst gesetzt; die Konfiguration zieht mit. */
+async function setzeSchrift(cdp: Cdp, px: number): Promise<void> {
+  await setAppConfig(cdp, "baseFontSize", px);
+  await cdp.evaluate(`document.body.style.setProperty("--font-text-size", ${px} + "px"); await new Promise((r) => setTimeout(r, 600)); return true;`);
+}
+
 async function main(): Promise<void> {
-  const name = arg("sequenz", LISBON_TAB.name);
+  const name = arg("sequenz", LISBON_TIPPEN.name);
   const sequenz = SEQUENZEN.find((s) => s.name === name);
   if (!sequenz) { console.error(`Unbekannte Sequenz ${name}; bekannt: ${SEQUENZEN.map((s) => s.name).join(", ")}`); process.exitCode = 2; return; }
   const port = Number(arg("port", ""));
@@ -203,13 +233,17 @@ async function main(): Promise<void> {
     if (!da) throw new Vorbedingung("Ghostline und/oder llm-endpoint-manager sind nicht geladen (Restricted Mode? Vertrauensdialog?).");
     await setWindowSize(cdp, FENSTER_BREITE, FENSTER_HOEHE);
     await sleep(800);
-    await notizBereit(cdp, sequenz.notiz);
+    await setzeSchrift(cdp, SCHRIFT);
+    await notizBereit(cdp, sequenz.notiz, sequenz.kuerzen);
     const vorher = await dokumentText(cdp);
     await clearNotices(cdp);
     await sleep(300);
 
-    const clip = await boxAround(cdp, [".workspace-leaf.mod-active .cm-editor", ".status-bar"], 8);
-    if (!clip) throw new Vorbedingung("Zuschnitt (Editor + Statusleiste) nicht bestimmbar.");
+    const roh = await boxAround(cdp, [".workspace-leaf.mod-active .cm-editor", ".status-bar"], 8);
+    if (!roh) throw new Vorbedingung("Zuschnitt (Editor + Statusleiste) nicht bestimmbar.");
+    // Das Polster darf nicht ueber das Fenster hinausragen: dort entsteht ein schwarzer Streifen (gemessen 2026-11-05, 8 px).
+    const fenster = await cdp.evaluate<{ w: number; h: number }>("return { w: window.innerWidth, h: window.innerHeight };");
+    const clip: Rect = { x: roh.x, y: roh.y, width: Math.min(roh.width, fenster.w - roh.x), height: Math.min(roh.height, fenster.h - roh.y) };
 
     const stand: Stand = { vorschlag: "", wartezeitMs: null, ghostDanach: "" };
     const herk = await herkunft(cdp, unsauber);
