@@ -45,3 +45,19 @@ The recipe copies the built `llm-endpoint-manager` plugin from the neighbouring 
 `hero.png` and `next-word.png` are recorded in a shorter window than the rest (300 and 270 px high instead of 420, `HOEHE_HERO` and `HOEHE_NEXT_WORD` in `scripts/shots.ts`): their text ends early, and in the default window a large empty area stayed between the text and the status bar (37 % and 43 % identical rows; the check allows 25 %). The status bar stays in the picture.
 
 After the recording, look at every image: crop, legibility, nothing private, and that the suggestion is the model's own text.
+
+## Sequences
+
+A sequence is one operation recorded in a single start: inputs at a fixed pace, one frame per keystroke, plus the input log in the contract with media-kit (`tools/obsidian-cdp/README.md` § Sequenz). The recipe is `scripts/sequenz.ts` (`npm run sequenz`); the frames are raw material for a composition (clipwerk) and are not embedded in the README. The output (`out/sequenz/`) is not tracked.
+
+Same state as the stills: the vault from `npm run shots -- --setup` (default Obsidian theme, real `llm-endpoint-manager`, LM Studio with `qwen2.5-coder-7b`), window 1200 × 320 px, English surface. Without a reachable model the recording stops; it does not draw a mock.
+
+| Sequence | Inputs | Result | What it must show |
+|---|---|---|---|
+| `lisbon-tab` | `Space` · `VORSCHLAG` (wait for the model, a log step with the target `ghost`) · `Tab` | `out/sequenz/lisbon-tab/` (4 frames, 3 log lines) | The note **Weekend in Lisbon** with the cursor at the end of the last line: the typed space, then the model's own suggestion as grey text, then the suggestion as normal text. `sequenz.json` → `herkunft` carries the suggestion and the measured wait (`wartezeit_ms`); the wait is real latency, so a clip that shortens it says so. |
+
+```bash
+npm run sequenz -- --port <port>                    # needs the second instance, see Recipe
+```
+
+The working tree must be clean (the recorded commit has to describe the state); for measurement runs only: `--herkunft-unsauber`.

@@ -7,3 +7,5 @@ data.json
 .gui-smoke.mjs
 .latency.mjs
 .superpowers/
+.sequenz.mjs
+out/
