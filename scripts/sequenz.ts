@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { argv, cwd } from "node:process";
 
 import { Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
-import { attachTo, bereiteInstanzVor, clearNotices, closeExtraLeaves, openExisting, pollUntil, type Cdp } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, bereiteInstanzVor, clearNotices, closeExtraLeaves, openExisting, pollUntil, requireVisible, type Cdp } from "../../tools/obsidian-cdp/cdp.js";
 import { boxAround, setWindowSize } from "../../tools/obsidian-cdp/shot.js";
 import { type AktionsKontext, type Schritt } from "../../tools/obsidian-cdp/sequenz.js";
 import { aufnehmen, ergebnisSchreiben, messzeile } from "../../tools/obsidian-cdp/sequenz-aufnahme.js";
@@ -192,6 +192,10 @@ async function main(): Promise<void> {
   }
   try {
     await pruefeEndpunkt();
+    // Ohne sichtbares Fenster (visibilityState hidden) laeuft der Debounce des Plugins nicht an: es kommt kein Vorschlag.
+    await cdp.send("Page.bringToFront");
+    await sleep(3000);
+    await requireVisible(cdp);
     await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID, MANAGER_ID], nurVault: REPO_NAME, sprache: "en" });
     const da = await pollUntil<boolean>(cdp, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}] && !!app.plugins.plugins[${JSON.stringify(MANAGER_ID)}];`, 15_000, 300);
     if (!da) throw new Vorbedingung("Ghostline und/oder llm-endpoint-manager sind nicht geladen (Restricted Mode? Vertrauensdialog?).");
