@@ -9,3 +9,4 @@ data.json
 .superpowers/
 .sequenz.mjs
 out/
+.shots.mjs
