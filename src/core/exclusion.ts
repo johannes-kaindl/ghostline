@@ -1,19 +1,10 @@
-import { normalizeFolderPath, parsePatterns, type IgnoreRule } from "../vendor/kit/ignore";
+import { isIgnoredByLevels, parsePatterns, type IgnoreRule } from "../vendor/kit/ignore";
 
-/** Jede Pfadstufe wird geprüft; auf einer Stufe gewinnt die letzte treffende Regel, die tiefste
- *  Stufe mit Treffer entscheidet. `matchIgnore` aus dem Kit prüft nur EINEN Pfad und meldet eine
- *  negierte Regel wie „kein Treffer" — für die Stufenfolge braucht es die Regelfelder selbst. */
+/** Jede Pfadstufe wird geprüft; auf einer Stufe gewinnt die letzte treffende Regel, die tiefste Stufe mit Treffer entscheidet
+ *  (eine Negation in einer tieferen Stufe gibt einen Treffer einer höheren frei). Die Auswertung liefert seit code-kit 0.64.0
+ *  das Kit (`isIgnoredByLevels`); `matchIgnoreChain` lässt dagegen einen Vorfahr-Treffer stehen und ist hier die falsche Funktion. */
 export function isPathExcluded(rules: readonly IgnoreRule[], filePath: string): boolean {
-  const segs = normalizeFolderPath(filePath).split("/").filter((s) => s !== "");
-  let excluded = false;
-  for (let i = 1; i <= segs.length; i++) {
-    const levelPath = segs.slice(0, i).join("/");
-    const name = segs[i - 1] ?? "";
-    let hit: IgnoreRule | null = null;
-    for (const r of rules) if (r.regex.test(r.anchored ? levelPath : name)) hit = r;
-    if (hit) excluded = !hit.negate;
-  }
-  return excluded;
+  return isIgnoredByLevels(rules, filePath);
 }
 
 export function frontmatterDisabled(frontmatter: unknown): boolean {

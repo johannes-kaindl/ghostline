@@ -23,7 +23,7 @@
         "sampling-profiles",
         {
           "name": "ignore",
-          "ref": "0.63.0"
+          "ref": "0.64.0"
         },
         "timeout",
         "model-choice",
