@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/ghostline?label=release)](https://github.com/johannes-kaindl/ghostline/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.11.4%2B%20·%20desktop-7c3aed)
 
-<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero-demo.webp" width="820" alt="In einer Notiz werden die Wörter „evening we“ getippt, der Editor wartet kurz, hinter dem Cursor erscheint ein grauer Ghost-Text-Vorschlag, und Tab macht ihn zu Text"><br><sub>Der Vorschlag ist die Antwort eines lokalen Modells (qwen2.5-coder-7b); der Clip kürzt die Wartezeit davor auf 1,2 s.</sub></p>
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/hero-demo.webp" width="800" alt="In einer Notiz werden die Wörter „evening we“ getippt, der Editor wartet kurz, hinter dem Cursor erscheint ein grauer Ghost-Text-Vorschlag, und Tab macht ihn zu Text"><br><sub>Der Vorschlag ist die Antwort eines lokalen Modells (qwen2.5-coder-7b); der Clip kürzt die Wartezeit davor auf 1,2 s.</sub></p>
 
 Während du schreibst, wartet Ghostline eine kurze Pause ab, fragt ein lokales Modell, wie die aktuelle Zeile weitergehen könnte, und zeigt die Antwort als graue Schrift hinter dem Cursor. Tab übernimmt sie, Escape verwirft sie. Nichts verlässt deinen Rechner, solange du nicht selbst einen entfernten Endpunkt einträgst.
 
