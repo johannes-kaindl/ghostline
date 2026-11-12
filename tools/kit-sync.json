@@ -21,7 +21,10 @@
         "settings",
         "reasoning",
         "sampling-profiles",
-        "ignore",
+        {
+          "name": "ignore",
+          "ref": "0.63.0"
+        },
         "timeout",
         "model-choice",
         "think-splitter",
