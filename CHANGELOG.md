@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-14
+
 ### Added
 
 - Settings: a "Status bar" switch (on by default) in the Behavior group. Turn it off if the status bar gets too wide. Existing installs keep the entry; nothing disappears after the update.
