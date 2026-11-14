@@ -28,4 +28,20 @@ describe("normalizeSettings", () => {
     expect(Object.keys(s)).not.toContain("apiKey");
     expect(s.choice).toEqual({ endpointId: "lm", model: "m" });
   });
+  describe("showStatusBar (UI-STANDARD § 8 Statusleisten-Eintrag)", () => {
+    it("Standard ist an", () => {
+      expect(DEFAULT_SETTINGS.showStatusBar).toBe(true);
+      expect(normalizeSettings(undefined).showStatusBar).toBe(true);
+    });
+    it("eine alte data.json ohne den Schlüssel startet mit an, ein gespeichertes aus bleibt aus", () => {
+      const alt = { enabled: false, tabAction: "none", delayMs: 500 };
+      expect(normalizeSettings(alt).showStatusBar).toBe(true);
+      expect(normalizeSettings({ ...alt, showStatusBar: false }).showStatusBar).toBe(false);
+      expect(normalizeSettings({ ...alt, showStatusBar: true }).showStatusBar).toBe(true);
+    });
+    it("ein Wert, der kein Boolean ist, fällt auf den Standard", () => {
+      expect(normalizeSettings({ showStatusBar: "nein" }).showStatusBar).toBe(true);
+      expect(normalizeSettings({ showStatusBar: null }).showStatusBar).toBe(true);
+    });
+  });
 });

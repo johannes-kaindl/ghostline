@@ -66,7 +66,7 @@ export default class GhostlinePlugin extends Plugin {
       },
     });
 
-    this.status = new StatusItem(this.addStatusBarItem(), () => { void this.onStatusClick(); });
+    this.status = new StatusItem({ plugin: this, visible: this.settings.showStatusBar, onToggle: () => { void this.onStatusClick(); } });
     this.status.render(this.statusState);
 
     const fim = createFimClient({ transport: xhrSseTransport, fallbackTransport: requestUrlTransport });
@@ -160,6 +160,13 @@ export default class GhostlinePlugin extends Plugin {
   private setStatus(patch: Partial<StatusState>): void {
     this.statusState = applyStatus(this.statusState, patch, this.settings.enabled);
     this.status.render(this.statusState);
+  }
+
+  /** Schalter „Statusleiste“: hängt den Eintrag ab oder legt ihn neu an (am Ende der Leiste) und speichert. */
+  setStatusBarVisible(on: boolean): void {
+    this.settings.showStatusBar = on;
+    this.status.setVisible(on);
+    void this.saveSettings();
   }
 
   private async onStatusClick(): Promise<void> {

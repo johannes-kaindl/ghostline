@@ -13,6 +13,8 @@ export interface GhostlineSettings {
   excludePatterns: string;
   choice: EndpointChoice;
   request: RequestSettings;
+  /** Eintrag in der Statusleiste (Standard an; UI-STANDARD § 8). */
+  showStatusBar: boolean;
 }
 
 export const DELAY_MIN = 150, DELAY_MAX = 1000, CONTEXT_MIN = 300, CONTEXT_MAX = 4000;
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: GhostlineSettings = {
   excludePatterns: "",
   choice: {},
   request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false },
+  showStatusBar: true,
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -55,5 +58,6 @@ export function normalizeSettings(raw: unknown): GhostlineSettings {
     excludePatterns: typeof r.excludePatterns === "string" ? r.excludePatterns : "",
     choice,
     request: sanitizeRequestSettings(r.request).settings,
+    showStatusBar: typeof r.showStatusBar === "boolean" ? r.showStatusBar : DEFAULT_SETTINGS.showStatusBar,
   };
 }

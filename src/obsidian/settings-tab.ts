@@ -4,6 +4,7 @@ import { getLang, t } from "../vendor/kit/i18n";
 import { createDebouncer, excludeDescription, parseBounded } from "../core/settings-input";
 import { realClock } from "../vendor/kit-obsidian/clock";
 import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
+import { statusBarSettingDefinition } from "../vendor/kit-obsidian/status-bar-item";
 import { renderSettingDefinitions, settingBodyHost, installTabRefreshOnOpen } from "../vendor/kit-obsidian/settings_walker";
 import type { LlmConnection } from "../vendor/kit-obsidian/llm-connection";
 import { CONTEXT_MAX, CONTEXT_MIN, DELAY_MAX, DELAY_MIN, type RequestPathSetting, type TabAction } from "../core/settings";
@@ -34,10 +35,16 @@ export class GhostlineSettingTab extends PluginSettingTab {
   hide(): void { this.patternSave.flush(); this.llm.hideSettings(); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
+    const statusRow = statusBarSettingDefinition({
+      value: this.plugin.settings.showStatusBar,
+      strings: { lang: getLang() },
+      onChange: (v) => { this.plugin.setStatusBarVisible(v); },
+    }) as ItemDef;
     const groups: GroupDef[] = [
       { type: "group", heading: t("set.groupEndpoint"), items: [{ name: t("set.endpoint"), render: (s) => { this.llm.renderSettings(settingBodyHost(s), { lang: getLang() }); } }] },
       { type: "group", heading: t("set.groupBehavior"), items: [
         { name: t("set.enabled"), desc: t("set.enabledDesc"), control: { type: "toggle", key: "enabled" } },
+        statusRow,
         { name: t("set.tab"), desc: t("set.tabDesc"), render: (s) => { this.renderDropdown<TabAction>(s, ["accept-all", "accept-word", "none"], "set.tab", () => this.plugin.settings.tabAction, (v) => { this.plugin.settings.tabAction = v; }); } },
         { name: t("set.path"), desc: t("set.pathDesc"), render: (s) => { this.renderDropdown<RequestPathSetting>(s, ["auto", "chat", "fim"], "set.path", () => this.plugin.settings.requestPath, (v) => { this.plugin.settings.requestPath = v; }); } },
         { name: t("set.delay"), desc: t("set.delayDesc", String(DELAY_MIN), String(DELAY_MAX)), render: (s) => { this.renderNumber(s, "delayMs", DELAY_MIN, DELAY_MAX); } },

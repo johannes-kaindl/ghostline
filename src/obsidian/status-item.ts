@@ -1,5 +1,6 @@
 import { setIcon } from "obsidian";
 import { t } from "../vendor/kit/i18n";
+import { createStatusBarItem, type StatusBarHost, type StatusBarItemHandle } from "../vendor/kit-obsidian/status-bar-item";
 
 export type StatusKind = "ok" | "checking" | "error" | "warning";
 export interface StatusState { enabled: boolean; kind: StatusKind; reason?: string; lastFirstWordMs?: number;
@@ -22,24 +23,49 @@ export function statusView(s: StatusState): { icon: string; cls: (typeof ALL_CLS
   return { icon: ICON[s.kind], cls: `is-${s.kind}` as const, label: parts.join(" — "), pressed: !s.ownAction, isToggle: !s.ownAction };
 }
 
+export interface StatusItemOptions {
+  plugin: StatusBarHost;
+  /** Zustand des Schalters „Statusleiste“ beim Start. */
+  visible: boolean;
+  onToggle: () => void;
+}
+
+/** Der Eintrag läuft über den Kit-Baustein `status-bar-item` (Schalter `showStatusBar`, Standard an). Klick, Taste und Aufbau stehen in `onCreate`, weil ein
+ *  abgehängtes Element seine Zuhörer mitnimmt; `render` zeichnet den gemerkten Zustand nach jedem Wiederanlegen. */
 export class StatusItem {
-  private readonly iconEl: HTMLElement;
-  constructor(private readonly el: HTMLElement, onToggle: () => void) {
-    el.addClass("ghostline-status");
-    el.setAttr("role", "button");
-    el.setAttr("tabindex", "0");
-    el.setAttr("data-tooltip-position", "top");
-    this.iconEl = el.createSpan({ cls: "ghostline-status-icon" });
-    el.addEventListener("click", onToggle);
-    el.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } });
+  private state: StatusState = { enabled: true, kind: "ok" };
+  private iconEl: HTMLElement | null = null;
+  private readonly handle: StatusBarItemHandle;
+  constructor(opts: StatusItemOptions) {
+    const { onToggle } = opts;
+    this.handle = createStatusBarItem({
+      plugin: opts.plugin,
+      visible: opts.visible,
+      cls: "ghostline-status",
+      onCreate: (el) => {
+        el.setAttr("role", "button");
+        el.setAttr("tabindex", "0");
+        el.setAttr("data-tooltip-position", "top");
+        this.iconEl = el.createSpan({ cls: "ghostline-status-icon" });
+        el.addEventListener("click", onToggle);
+        el.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } });
+      },
+      render: (el) => { this.paint(el); },
+    });
   }
   render(s: StatusState): void {
-    const v = statusView(s);
-    this.el.removeClass(...ALL_CLS);
-    this.el.addClass(v.cls);
-    setIcon(this.iconEl, v.icon);
-    this.el.setAttr("aria-label", v.label);
-    if (v.isToggle) this.el.setAttr("aria-pressed", String(v.pressed));
-    else this.el.removeAttribute("aria-pressed");
+    this.state = s;
+    this.handle.refresh();
+  }
+  setVisible(on: boolean): void { this.handle.setVisible(on); }
+  destroy(): void { this.handle.destroy(); }
+  private paint(el: HTMLElement): void {
+    const v = statusView(this.state);
+    el.removeClass(...ALL_CLS);
+    el.addClass(v.cls);
+    if (this.iconEl) setIcon(this.iconEl, v.icon);
+    el.setAttr("aria-label", v.label);
+    if (v.isToggle) el.setAttr("aria-pressed", String(v.pressed));
+    else el.removeAttribute("aria-pressed");
   }
 }

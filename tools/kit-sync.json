@@ -103,7 +103,11 @@
         "embedding-connection",
         "endpoint-status-text",
         "plugin-api",
-        "anthropic-transport"
+        "anthropic-transport",
+        {
+          "name": "status-bar-item",
+          "ref": "0.88.0"
+        }
       ],
       "rewrite": [
         [
