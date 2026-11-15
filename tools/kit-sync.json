@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.69.1"
+      "ref": "0.92.0"
     },
     "code-kit": {
-      "ref": "0.36.0"
+      "ref": "0.73.0"
     }
   },
   "targets": [
@@ -21,10 +21,7 @@
         "settings",
         "reasoning",
         "sampling-profiles",
-        {
-          "name": "ignore",
-          "ref": "0.64.0"
-        },
+        "ignore",
         "timeout",
         "model-choice",
         "think-splitter",
@@ -32,14 +29,13 @@
         "model-list-cache",
         "backend-probe",
         "capabilities",
-        {
-          "name": "redact",
-          "ref": "0.60.0"
-        },
+        "redact",
         "secrets",
         "embeddings-client",
         "model-context",
-        "markdown-table"
+        "markdown-table",
+        "anthropic-wire",
+        "error-message"
       ]
     },
     {
@@ -57,7 +53,6 @@
       "modules": [
         "endpoint-source",
         "endpoint-secret-hook",
-        "anthropic-wire",
         "override-guard"
       ],
       "rewrite": [
@@ -104,10 +99,12 @@
         "endpoint-status-text",
         "plugin-api",
         "anthropic-transport",
-        {
-          "name": "status-bar-item",
-          "ref": "0.88.0"
-        }
+        "status-bar-item",
+        "model-bar",
+        "model-bar-strings",
+        "setting-body-host",
+        "status-indicator",
+        "thinking-control"
       ],
       "rewrite": [
         [
