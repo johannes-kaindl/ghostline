@@ -77,7 +77,7 @@ npm run build   # erzeugt main.js
 
 ## Configuration
 
-<a href="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/settings.png"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/thumbs/settings.png" width="380" alt="Der Einstellungen-Tab von Ghostline mit den Gruppen Help, Endpoint, Behavior und Exclusions"></a><br><sub>Vorschau anklicken für das Bild in voller Größe</sub>
+<a href="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/settings.png"><img src="https://raw.githubusercontent.com/johannes-kaindl/ghostline/main/docs/images/thumbs/settings.png" width="380" alt="Der Einstellungen-Tab von Ghostline mit den Gruppen Help, Endpoint, Behavior (mit dem Schalter Status bar) und Exclusions"></a><br><sub>Vorschau anklicken für das Bild in voller Größe</sub>
 
 **Einstellungen → Community-Plugins → Ghostline**, mit den Standardwerten:
 

@@ -24,7 +24,7 @@ All four images are recorded against a real model: LM Studio on `localhost:1234`
 | `hero.png` | feature | `README.md`, `README.de.md` (Usage, first image) | The note **Weekend in Lisbon** in the editor with the cursor at the end of the last line and a grey ghost-text suggestion continuing the sentence. Status bar visible with the Ghostline entry. Left sidebar collapsed. |
 | `list-suggestion.png` | feature | `README.md`, `README.de.md` (Usage) | The note **Team sync**: a ghost-text suggestion that completes the last bullet of a list. Same window width as the hero (default height, 420 px), so the suggestion works in a different block kind. |
 | `next-word.png` | feature | `README.md`, `README.de.md` (Usage) | The note **Project ideas** after one press of the right arrow: the first word of the suggestion is now normal text, the rest stays as grey ghost text. Shows word-by-word acceptance. |
-| `settings.png` | detail | `README.md`, `README.de.md` (Configuration) | The Ghostline settings tab from Help down to Exclusions at their defaults. The image ends above the Request group on purpose: its rows depend on the endpoint state (model family and backend unknown for a bare endpoint) and say nothing about the delivered defaults. |
+| `settings.png` | detail | `README.md`, `README.de.md` (Configuration) | The Ghostline settings tab from Help down to Exclusions at their defaults, with the Status bar switch in the Behavior group. The image ends above the Request group on purpose: its rows depend on the endpoint state (model family and backend unknown for a bare endpoint) and say nothing about the delivered defaults. |
 
 ## Recipe
 
