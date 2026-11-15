@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-15
+
 ### Changed
 
 - Settings, Endpoint group: the model row comes from the shared library update and lists the models of every enabled endpoint of the LLM endpoint manager, grouped by endpoint. A choice that points at an endpoint which no longer exists is rewritten to the active one.
