@@ -29,7 +29,7 @@ import { existsSync, mkdirSync, writeFileSync, cpSync } from "node:fs";
 import { join } from "node:path";
 import { argv, cwd, exit } from "node:process";
 
-import { attachTo, Cdp, closeExtraLeaves, openExisting, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, bereiteInstanzVor, Cdp, closeExtraLeaves, openExisting, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { boxOf, capture, setWindowSize, writeShot, type Rect, type ShotOptions } from "../../tools/obsidian-cdp/shot.js";
 import { buildVault, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
 
@@ -280,6 +280,11 @@ async function main(): Promise<void> {
   await cdp.mitschnitt((zeile) => { if (/error|exception/i.test(zeile)) console.log(`      » ${zeile}`); });
   await sleep(3000);
   await requireVisible(cdp);
+
+  // Frisches Profil: Vertrauensdialog bestätigen, Restricted Mode aufheben, Plugin laden, Aufnahmesprache setzen. Ohne den Aufruf zeigt jedes Bild
+  // den Vertrauensdialog, und das Plugin fehlt im Renderer (Brücke README § Frisches Profil vorbereiten).
+  const vor = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID, MANAGER_ID], nurVault: REPO_NAME, sprache: "en" });
+  console.log(`Instanz: ${vor.hinweis}`);
 
   const sprache = await cdp.evaluate<string>(`return window.moment ? window.moment.locale() : "?";`);
   if (!sprache.startsWith("en")) throw new Error(`Oberflaeche ist "${sprache}", nicht Englisch — obsidian.json UND localStorage["language"] auf "en", dann Neustart.`);
