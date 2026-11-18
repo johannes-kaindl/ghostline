@@ -8,20 +8,11 @@
  * Der Port ist PFLICHT (`--port <n>`, dokumentierter Wert dieses Rezepts: 9396); der Treiber hat keinen Default.
  * Reihenfolge laut obsidian-plugins/AGENTS.md § Staging-Vaults (a)-(c):
  *
- *   echo "$STAGING_VAULTS_DIR"                                          # muss gesetzt sein (~/.zshenv)
- *   UD=/tmp/obs-test-ghostline; mkdir -p "$UD"
- *   lsof -nP -iTCP:9396 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
- *   pgrep -f "user-data-dir=$UD" && echo "Profil belegt — $UD-w13 nehmen"
- *   npm run build && npm run smoke:gui -- --setup                       # Vault aus fixtures/vault/
- *   # (a) aktuelle Version statt gebuendelter (nachsehen: ls ~/Library/Application\ Support/obsidian/*.asar)
- *   cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/
- *   # Vault registrieren (Obsidian liest obsidian.json nur beim Start):
- *   node -e 'const p=process.env.STAGING_VAULTS_DIR+"/ghostline";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{ghostline:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
- *   /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9396 &
- *   # Prozess-PID merken: beendet wird NUR sie, nie pkill/killall. Je Messlauf frischer Prozess.
- *   python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label ghostline --intent "GUI-Smoke Zweitinstanz :9396" --exclusive focus --port 9396 --ttl 300
- *   npm run smoke:gui -- --port 9396     # (b) Restricted Mode und (c) Vertrauensdialog: `bereiteInstanzVor` (Bruecke)
- *   python3 ~/.claude/hooks/obsidian-cdp-lock.py release
+ * Lauf: `tools/obsidian-cdp/messlauf.sh` (Dach, README § Messlauf in einem Aufruf) startet die Zweitinstanz, hält den Lock (`--exclusive focus`, davor, mit `export`)
+ * und räumt auf; das Rezept steht nur dort. Für diesen Treiber: `REPO=ghostline PORT=9396` (Port als Vorschlag, jeder freie geht).
+ *
+ * Besonderheiten dieses Treibers (aus dem früheren Rezept übernommen):
+ *   Setup (`--setup`): Vault aus fixtures/vault/
  *
  * Bilanz in vier Zustaenden (CORE-TEST-19, `createBilanz`): Nenner ist `PUNKTE` (G1-G22); ein nie aufgezeichneter
  * Punkt zaehlt als „nichts gemessen". Exit 1 bei Rot oder nichts gemessen, 2 bei Abbruch.
