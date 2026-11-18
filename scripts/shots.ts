@@ -85,7 +85,6 @@ async function pruefeEndpunkt(): Promise<void> {
 
 /** Notiz oeffnen, Cursor ans Dokumentende, Editor fokussiert, Ghost-frei. */
 async function notizBereit(cdp: Cdp, pfad: string): Promise<boolean> {
-  await cdp.send("Page.bringToFront");
   if (!(await openExisting(cdp, pfad, "source"))) return false;
   await closeExtraLeaves(cdp);
   await cdp.evaluate(`
@@ -279,7 +278,6 @@ async function main(): Promise<void> {
   if (!cdp) throw new Error(`Kein Obsidian-Fenster mit dem Vault "${REPO_NAME}" auf Port ${port}.`);
   console.log(`Verbunden auf Port ${port}.\n`);
   await cdp.mitschnitt((zeile) => { if (/error|exception/i.test(zeile)) console.log(`      » ${zeile}`); });
-  await cdp.send("Page.bringToFront");
   await sleep(3000);
   await requireVisible(cdp);
 

@@ -138,7 +138,6 @@ async function pruefeEndpunkt(): Promise<void> {
 
 /** Notiz oeffnen, Seitenleisten zu, Cursor ans Dokumentende, Editor fokussiert, kein Ghost vorhanden. */
 async function notizBereit(cdp: Cdp, pfad: string, kuerzen: string): Promise<void> {
-  await cdp.send("Page.bringToFront");
   if (!(await openExisting(cdp, pfad, "source"))) throw new Vorbedingung(`Notiz ${pfad} nicht zu oeffnen.`);
   await closeExtraLeaves(cdp);
   await cdp.evaluate(`app.workspace.leftSplit.collapse(); app.workspace.rightSplit.collapse(); return true;`);
@@ -225,7 +224,6 @@ async function main(): Promise<void> {
   try {
     await pruefeEndpunkt();
     // Ohne sichtbares Fenster (visibilityState hidden) laeuft der Debounce des Plugins nicht an: es kommt kein Vorschlag.
-    await cdp.send("Page.bringToFront");
     await sleep(3000);
     await requireVisible(cdp);
     await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID, MANAGER_ID], nurVault: REPO_NAME, sprache: "en" });
