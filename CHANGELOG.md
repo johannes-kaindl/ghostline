@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-11-19
+
 ### Fixed
 
 - Credentials that stand directly behind a word or underscore character (for example `key_sk-proj-…`, `my_AKIA…` or `x_Bearer …`) are now redacted as well before the text around the cursor is sent to the model.
