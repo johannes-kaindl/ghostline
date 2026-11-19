@@ -111,3 +111,29 @@ describe("buildContext", () => {
     expect(redact("Text\n-----BEGIN PRIVATE KEY-----\nbody")).toBe("Text\n[redacted-private-key]");
   });
 });
+
+describe("buildContext: Geheimnis hinter einem Wortzeichen (code-kit 0.79.1)", () => {
+  const SK = "sk-proj-abc123def456ghi789";
+  const AKIA = "AKIAIOSFODNN7EXAMPLE";
+  const geklebt = [
+    ["Unterstrich + sk-", `key_${SK}`, SK],
+    ["Unterstrich + AKIA", `my_${AKIA}`, AKIA],
+    ["Unterstrich + Bearer", "x_Bearer abcdef1234567890token", "abcdef1234567890token"],
+  ] as const;
+  for (const [name, text, geheimnis] of geklebt) {
+    it(`schwärzt im Text vor dem Cursor: ${name}`, () => {
+      const doc = `Anfang ${text} Ende`;
+      const c = buildContext({ title: "t", docText: doc, cursor: doc.length, maxBefore: 500, maxAfter: 0 });
+      expect(c.before).not.toContain(geheimnis);
+    });
+    it(`schwärzt im Text nach dem Cursor: ${name}`, () => {
+      const doc = `Anfang ${text} Ende`;
+      const c = buildContext({ title: "t", docText: doc, cursor: 0, maxBefore: 0, maxAfter: 500 });
+      expect(c.after).not.toContain(geheimnis);
+    });
+  }
+  it("schwärzt auch im Titel", () => {
+    const c = buildContext({ title: `key_${SK}`, docText: "", cursor: 0, maxBefore: 10, maxAfter: 10 });
+    expect(c.title).not.toContain(SK);
+  });
+});
